@@ -8,10 +8,10 @@ func t(_ key: String) -> String {
     return NSLocalizedString(key, comment: "")
 }
 
-private let currentAppBundleIdentifier = "com.github.Skyearn.BLEUnlock"
+private let currentAppBundleIdentifier = "com.tonydong.macOSHello"
 private let legacyMainBundleIdentifiers = ["jp.sone.BLEUnlock"]
-private let lockNotificationID = "com.github.Skyearn.BLEUnlock.lock"
-private let updateNotificationID = "com.github.Skyearn.BLEUnlock.update"
+private let lockNotificationID = "com.tonydong.macOSHello.lock"
+private let updateNotificationID = "com.tonydong.macOSHello.update"
 private let notificationKindKey = "kind"
 private let launcherBundleIDSuffix = ".Launcher"
 private let unlockLogicMenuItemKind = "unlockLogic"
@@ -134,12 +134,12 @@ func notifyUpdateAvailable() {
     if #available(macOS 10.14, *) {
         enqueueNotification(identifier: updateNotificationID,
                             kind: .update,
-                            title: "BLEUnlock",
+                            title: "macOSHello",
                             subtitle: t("notification_update_available"),
                             sound: false)
     } else {
         let notification = NSUserNotification()
-        notification.title = "BLEUnlock"
+        notification.title = "macOSHello"
         notification.subtitle = t("notification_update_available")
         NSUserNotificationCenter.default.deliver(notification)
     }
@@ -178,7 +178,7 @@ struct DeviceMenuItemView {
     var lockNowMenuItem: NSMenuItem?
     var deviceMenuItem: NSMenuItem?
     /// Serial queue for ServiceManagement XPC calls to avoid concurrent smd requests.
-    let smdQueue = DispatchQueue(label: "com.github.Skyearn.BLEUnlock.smd")
+    let smdQueue = DispatchQueue(label: "com.tonydong.macOSHello.smd")
     let prefs = UserDefaults.standard
     var displaySleep = false
     var systemSleep = false
@@ -199,7 +199,7 @@ struct DeviceMenuItemView {
     var flagsEventMonitor: Any?
     var deviceMaxTitleWidth: [UUID: CGFloat] = [:]
     var automationPermissionPromptedApps: Set<ManagedMediaApp> = []
-    let mediaControlQueue = DispatchQueue(label: "com.github.Skyearn.BLEUnlock.media-control", qos: .userInitiated)
+    let mediaControlQueue = DispatchQueue(label: "com.tonydong.macOSHello.media-control", qos: .userInitiated)
     var systemWakeTimer: Timer?
     var wakeUnlockTimer: Timer?
     var postUnlockRetryTimer: Timer?
@@ -400,7 +400,7 @@ struct DeviceMenuItemView {
     /// First restores MACs persisted from the previous session, then falls back to
     /// IOBluetooth for any remaining devices that have a known name.
     /// Persisted MACs are critical for re‑identifying devices whose BLE UUID rotates
-    /// while BLEUnlock was not running.
+        /// while macOSHello was not running.
     func resolveMonitoredMACsOnStartup(uuids: Set<UUID>) {
         // ── 1. Restore persisted MAC→UUID mappings from UserDefaults ──
         let savedMACToUUID = loadPersistedMACs()
@@ -1185,7 +1185,7 @@ struct DeviceMenuItemView {
         }
         enqueueNotification(identifier: lockNotificationID,
                             kind: .lock,
-                            title: "BLEUnlock",
+                            title: "macOSHello",
                             subtitle: subtitle,
                             informativeText: t("notification_locked"),
                             after: 1)
@@ -1200,7 +1200,7 @@ struct DeviceMenuItemView {
     func userNotificationCenter(_ center: NSUserNotificationCenter,
                                 didActivate notification: NSUserNotification) {
         if notification != userNotification {
-            NSWorkspace.shared.open(URL(string: "https://github.com/Skyearn/BLEUnlock/releases")!)
+            NSWorkspace.shared.open(URL(string: "https://github.com/tonydong/macOSHello/releases")!)
             NSUserNotificationCenter.default.removeDeliveredNotification(notification)
         }
     }
@@ -1231,7 +1231,7 @@ struct DeviceMenuItemView {
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let kind = response.notification.request.content.userInfo[notificationKindKey] as? String
         if kind == AppNotificationKind.update.rawValue {
-            NSWorkspace.shared.open(URL(string: "https://github.com/Skyearn/BLEUnlock/releases")!)
+            NSWorkspace.shared.open(URL(string: "https://github.com/tonydong/macOSHello/releases")!)
             removeDeliveredNotification(identifier: updateNotificationID)
         }
         completionHandler()
@@ -1864,7 +1864,7 @@ struct DeviceMenuItemView {
         let alert = NSAlert()
         alert.messageText = msg
         alert.informativeText = info ?? ""
-        alert.window.title = "BLEUnlock"
+        alert.window.title = "macOSHello"
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
@@ -1873,7 +1873,7 @@ struct DeviceMenuItemView {
         let alert = NSAlert()
         alert.messageText = msg
         alert.informativeText = info ?? ""
-        alert.window.title = "BLEUnlock"
+        alert.window.title = "macOSHello"
         alert.addButton(withTitle: t("ok"))
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
@@ -1883,14 +1883,14 @@ struct DeviceMenuItemView {
         guard !prefs.bool(forKey: pauseNowPlayingNoticeShownKey) else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Pause Now Playing Setup"
+        alert.messageText = "设置“播放中”暂停功能"
         alert.informativeText = """
-        BLEUnlock can pause Music, QuickTime Player, Spotify, and Safari when your Mac locks.
+        macOSHello 可以在锁定时暂停 Music、QuickTime Player、Spotify 和 Safari。
 
-        macOS may ask you to allow BLEUnlock to control those apps. Safari also requires enabling:
+        macOS 可能会要求允许 macOSHello 控制这些应用。Safari 还需要在以下位置开启：
         Develop > Allow JavaScript from Apple Events
         """
-        alert.window.title = "BLEUnlock"
+        alert.window.title = "macOSHello"
         alert.addButton(withTitle: t("ok"))
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
@@ -1934,7 +1934,7 @@ struct DeviceMenuItemView {
             String(kSecClass): kSecClassGenericPassword,
             String(kSecAttrAccount): NSUserName(),
             String(kSecAttrService): currentKeychainServiceIdentifier(),
-            String(kSecAttrLabel): "BLEUnlock",
+            String(kSecAttrLabel): "macOSHello",
             String(kSecAttrAccessible): kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             String(kSecValueData): pw,
         ]
@@ -2028,7 +2028,7 @@ struct DeviceMenuItemView {
         msg.addButton(withTitle: t("cancel"))
         msg.messageText = t("enter_password")
         msg.informativeText = t("password_info")
-        msg.window.title = "BLEUnlock"
+        msg.window.title = "macOSHello"
 
         let txt = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 20))
         msg.accessoryView = txt
@@ -2048,7 +2048,7 @@ struct DeviceMenuItemView {
         msg.addButton(withTitle: t("cancel"))
         msg.messageText = t("enter_rssi_threshold")
         msg.informativeText = t("enter_rssi_threshold_info")
-        msg.window.title = "BLEUnlock"
+        msg.window.title = "macOSHello"
         
         let txt = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 20))
         txt.placeholderString = String(ble.thresholdRSSI)
@@ -2190,7 +2190,7 @@ struct DeviceMenuItemView {
                     let alert = NSAlert()
                     alert.messageText = t("update_available_title")
                     alert.informativeText = String(format: t("update_available_message"), version)
-                    alert.window.title = "BLEUnlock"
+                    alert.window.title = "macOSHello"
                     if downloadURL != nil {
                         alert.addButton(withTitle: t("download_update"))
                     }
@@ -2327,12 +2327,12 @@ struct DeviceMenuItemView {
 
     @objc func enrollFace() {
         let alert = NSAlert()
-        alert.messageText = "Register a Face"
-        alert.informativeText = "Enter a name for this person. Look at the camera and slowly turn your head left and right until 8 samples are captured. Processing is local."
-        alert.addButton(withTitle: "Continue")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = "注册人脸"
+        alert.informativeText = "请输入姓名。看摄像头并缓慢左右转头，系统会在本地采集 8 个样本。"
+        alert.addButton(withTitle: "继续")
+        alert.addButton(withTitle: "取消")
         let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        nameField.placeholderString = "Name"
+        nameField.placeholderString = "姓名"
         alert.accessoryView = nameField
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn, !nameField.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
@@ -2341,11 +2341,11 @@ struct DeviceMenuItemView {
             do {
                 let profile = try await self?.faceUnlock.enroll(name: nameField.stringValue.trimmingCharacters(in: .whitespaces))
                 await MainActor.run {
-                    self?.showFaceInfo("Registered \(profile?.name ?? "Face")", info: "The face samples were saved locally.")
+                    self?.showFaceInfo("已注册 \(profile?.name ?? "人脸")", info: "人脸样本已保存在本机。")
                 }
             } catch {
                 await MainActor.run {
-                    self?.showFaceInfo("Face Registration Failed", info: error.localizedDescription)
+                    self?.showFaceInfo("人脸注册失败", info: error.localizedDescription)
                 }
             }
         }
@@ -2357,10 +2357,10 @@ struct DeviceMenuItemView {
 
     @objc func deleteAllFaces() {
         let alert = NSAlert()
-        alert.messageText = "Delete All Registered Faces?"
-        alert.informativeText = "This removes all locally stored face templates."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = "删除所有人脸注册记录？"
+        alert.informativeText = "将删除本机保存的所有人脸特征数据。"
+        alert.addButton(withTitle: "删除")
+        alert.addButton(withTitle: "取消")
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         faceUnlock.deleteAll()
@@ -2381,7 +2381,7 @@ struct DeviceMenuItemView {
     }
 
     @objc func toggleFaceLiveness(_ menuItem: NSMenuItem) {
-        let enabled = !prefs.bool(forKey: "faceLivenessEnabled")
+        let enabled = !faceUnlock.livenessEnabled
         prefs.set(enabled, forKey: "faceLivenessEnabled")
         menuItem.state = enabled ? .on : .off
     }
@@ -2403,7 +2403,7 @@ struct DeviceMenuItemView {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = info
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "好")
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
@@ -2412,7 +2412,7 @@ struct DeviceMenuItemView {
         faceCameraMenu.removeAllItems()
         let cameras = FaceCamera.availableCameras()
         guard !cameras.isEmpty else {
-            let item = faceCameraMenu.addItem(withTitle: "No Camera Found", action: nil, keyEquivalent: "")
+            let item = faceCameraMenu.addItem(withTitle: "未找到摄像头", action: nil, keyEquivalent: "")
             item.isEnabled = false
             return
         }
@@ -2432,7 +2432,7 @@ struct DeviceMenuItemView {
         faceProfilesMenu.removeAllItems()
         let profiles = faceUnlock.profiles
         guard !profiles.isEmpty else {
-            let item = faceProfilesMenu.addItem(withTitle: "No Registered Faces", action: nil, keyEquivalent: "")
+            let item = faceProfilesMenu.addItem(withTitle: "暂无人脸注册记录", action: nil, keyEquivalent: "")
             item.isEnabled = false
             return
         }
@@ -2562,17 +2562,17 @@ struct DeviceMenuItemView {
             item.state = .on
         }
 
-        let faceUnlockItem = mainMenu.addItem(withTitle: "Face Unlock", action: nil, keyEquivalent: "")
+        let faceUnlockItem = mainMenu.addItem(withTitle: "人脸解锁", action: nil, keyEquivalent: "")
         faceUnlockItem.submenu = faceMenu
-        faceMenu.addItem(withTitle: "Register Face...", action: #selector(enrollFace), keyEquivalent: "").target = self
-        faceMenu.addItem(withTitle: "Verify Face Now", action: #selector(verifyFaceNow), keyEquivalent: "").target = self
+        faceMenu.addItem(withTitle: "注册人脸...", action: #selector(enrollFace), keyEquivalent: "").target = self
+        faceMenu.addItem(withTitle: "立即识别测试", action: #selector(verifyFaceNow), keyEquivalent: "").target = self
 
-        let profilesItem = faceMenu.addItem(withTitle: "Registered Faces", action: nil, keyEquivalent: "")
+        let profilesItem = faceMenu.addItem(withTitle: "已注册人脸", action: nil, keyEquivalent: "")
         profilesItem.submenu = faceProfilesMenu
         faceProfilesMenu.delegate = self
         rebuildFaceProfilesMenu()
 
-        let modeItem = faceMenu.addItem(withTitle: "Unlock Mode", action: nil, keyEquivalent: "")
+        let modeItem = faceMenu.addItem(withTitle: "解锁模式", action: nil, keyEquivalent: "")
         modeItem.submenu = faceModeMenu
         for mode in [FaceUnlockMode.bleOnly, .faceOnly, .faceOrBLE, .faceAndBLE] {
             let item = faceModeMenu.addItem(withTitle: mode.title, action: #selector(setFaceUnlockMode), keyEquivalent: "")
@@ -2581,7 +2581,7 @@ struct DeviceMenuItemView {
         }
         faceModeMenu.delegate = self
 
-        let thresholdItem = faceMenu.addItem(withTitle: "Similarity Threshold", action: nil, keyEquivalent: "")
+        let thresholdItem = faceMenu.addItem(withTitle: "相似度阈值", action: nil, keyEquivalent: "")
         thresholdItem.submenu = faceThresholdMenu
         for value in [80, 84, 86, 90, 94, 98] {
             let item = faceThresholdMenu.addItem(withTitle: String(format: "%.2f", Float(value) / 100), action: #selector(setFaceSimilarityThreshold), keyEquivalent: "")
@@ -2590,15 +2590,15 @@ struct DeviceMenuItemView {
         }
         faceThresholdMenu.delegate = self
 
-        let cameraItem = faceMenu.addItem(withTitle: "Camera", action: nil, keyEquivalent: "")
+        let cameraItem = faceMenu.addItem(withTitle: "摄像头", action: nil, keyEquivalent: "")
         cameraItem.submenu = faceCameraMenu
         faceCameraMenu.delegate = self
         rebuildFaceCameraMenu()
 
-        let livenessItem = faceMenu.addItem(withTitle: "Liveness Detection", action: #selector(toggleFaceLiveness), keyEquivalent: "")
+        let livenessItem = faceMenu.addItem(withTitle: "活体检测", action: #selector(toggleFaceLiveness), keyEquivalent: "")
         livenessItem.target = self
         livenessItem.state = faceUnlock.livenessEnabled ? .on : .off
-        faceMenu.addItem(withTitle: "Delete All Faces", action: #selector(deleteAllFaces), keyEquivalent: "").target = self
+        faceMenu.addItem(withTitle: "删除所有人脸", action: #selector(deleteAllFaces), keyEquivalent: "").target = self
         
         mainMenu.addItem(withTitle: t("set_password"), action: #selector(askPassword), keyEquivalent: "")
 

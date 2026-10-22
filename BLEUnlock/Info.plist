@@ -25,14 +25,13 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>BLEUnlock uses Automation to pause and resume playback in supported apps while your Mac locks and unlocks.</string>
+	<string>macOSHello 在锁定和解锁时控制受支持的应用，用于暂停或恢复播放。</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>BLEUnlock uses Bluetooth to detect devices.</string>
+	<string>macOSHello 使用蓝牙检测可信设备的距离，用于组合人脸解锁。</string>
 	<key>NSCameraUsageDescription</key>
 	<string>macOSHello uses the camera to recognize registered faces locally and unlock your Mac. No camera data is uploaded.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2019-2022 Takeshi Sone. MIT Licensed.
-Copyright © 2026 Skyearn. MIT Licensed.</string>
+	<string>Copyright © 2026 Tony Dong. MIT Licensed.</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>

@@ -13,10 +13,10 @@ enum FaceUnlockMode: Int {
 
     var title: String {
         switch self {
-        case .bleOnly: return "Bluetooth only"
-        case .faceOnly: return "Face only"
-        case .faceOrBLE: return "Face or Bluetooth"
-        case .faceAndBLE: return "Face and Bluetooth"
+        case .bleOnly: return "仅蓝牙"
+        case .faceOnly: return "仅人脸"
+        case .faceOrBLE: return "人脸或蓝牙"
+        case .faceAndBLE: return "人脸且蓝牙"
         }
     }
 }
@@ -184,10 +184,10 @@ enum FaceUnlockError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noCamera: return "No camera is available."
-        case .cameraPermissionDenied: return "Camera permission was denied."
-        case .timeout: return "Face capture timed out."
-        case .enrollmentMissing: return "No registered face was found."
+        case .noCamera: return "没有可用的摄像头。"
+        case .cameraPermissionDenied: return "摄像头权限被拒绝。"
+        case .timeout: return "人脸采集超时。"
+        case .enrollmentMissing: return "尚未注册人脸。"
         }
     }
 }
@@ -427,10 +427,10 @@ enum FaceVerificationFailure {
 
     var message: String {
         switch self {
-        case .noEnrollment: return "No registered face was found."
-        case .cameraUnavailable: return "The selected camera is unavailable."
-        case .cameraPermission: return "Camera permission is required."
-        case .timeout: return "Face verification timed out."
+        case .noEnrollment: return "尚未注册人脸。"
+        case .cameraUnavailable: return "选中的摄像头不可用。"
+        case .cameraPermission: return "需要摄像头权限。"
+        case .timeout: return "人脸识别超时。"
         }
     }
 }
