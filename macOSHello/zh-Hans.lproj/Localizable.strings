@@ -1,0 +1,11 @@
+/* Empty by design: macOSHello uses Chinese strings directly in code. */
+"about" = "关于 macOSHello";
+"cancel" = "取消";
+"enter_password" = "输入用于解锁当前用户锁屏的密码。";
+"launch_at_login" = "登录后自动启动";
+"notification_locked" = "macOSHello 已锁定这台电脑";
+"ok" = "好";
+"password_info" = "密码只保存在本机钥匙串中。";
+"password_not_set" = "尚未设置密码。";
+"quit" = "退出 macOSHello";
+"set_password" = "设置密码…";

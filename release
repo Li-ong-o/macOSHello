@@ -2,14 +2,11 @@
 
 set -o pipefail
 
-if [ ! "$PASSWORD" ]; then
-    echo set app-specific password in PASSWORD env var
-    exit 1
-fi
+: "${USERNAME:?请在 USERNAME 环境变量中设置 Apple ID}"
+: "${TEAM:?请在 TEAM 环境变量中设置团队 ID}"
+: "${PASSWORD:?请在 PASSWORD 环境变量中设置应用专用密码}"
 
-USERNAME=takeshi.sone@gmail.com
-TEAM=42LGPQYC7M
-APPNAME=BLEUnlock
+APPNAME=macOSHello
 
 BASEDIR=$(cd $(dirname $0); pwd)
 BUILDDIR=$BASEDIR/build
@@ -64,7 +61,6 @@ xcodebuild \
    -exportOptionsPlist $BASEDIR/ExportOptions.plist \
    -exportPath $RELEASEDIR
 
-notarize $RELEASEDIR/$APPNAME.app/Contents/Library/LoginItems/Launcher.app
 notarize $RELEASEDIR/$APPNAME.app
 
 version=$(extract_info $RELEASEDIR/$APPNAME.app CFBundleShortVersionString)

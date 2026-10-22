@@ -1,0 +1,5 @@
+/* Class = "NSTextFieldCell"; title = "macOSHello version #{version}"; ObjectID = "VLW-23-BX0"; */
+"VLW-23-BX0.title" = "macOSHello 版本 #{version}";
+
+/* Class = "NSWindow"; title = "About macOSHello"; ObjectID = "hgX-Z1-8qq"; */
+"hgX-Z1-8qq.title" = "关于 macOSHello";
