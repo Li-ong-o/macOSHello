@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var postUnlockRetryTimer: Timer?
     private var systemObservers: [NSObjectProtocol] = []
     private var continuousFaceUnlockEnabled = false
+    private var continuousFaceUnlockUntil = Date.distantPast
     private var accessibilityRetryTimer: Timer?
     private var previewWindowController: FacePreviewWindowController?
 
@@ -38,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let wakeUnlockMaxRetries = 8
     private let conservativeWakeSleepThreshold: TimeInterval = 60
     private let conservativeWakeUnlockDelay: TimeInterval = 1.5
+    private let faceUnlockActiveWindow: TimeInterval = 30
     private let logger = Logger(subsystem: "com.tonydong.macOSHello", category: "face-unlock")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -170,6 +172,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.displaySleep = true
+            if self?.continuousFaceUnlockEnabled == true {
+                wakeDisplay()
+            }
             self?.stopCameraWhenDisplayIsOff()
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -190,6 +195,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.startContinuousFaceUnlock()
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.pendingFaceUnlock?.cancel()
+            self?.pendingFaceUnlock = nil
+            self?.faceUnlock.stopCurrentOperation()
+            self?.faceOperationActive = false
             self?.inScreensaver = false
             self?.lastSystemSleepStartedAt = 0
             self?.lastScreensaverStartedAt = 0
@@ -275,9 +284,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func updateStatus(_ text: String) {
-        statusItem.button?.title = text
         statusResetTimer?.invalidate()
-        statusResetTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { [weak self] _ in
+        statusResetTimer = nil
+        statusItem.button?.title = text
+        guard !text.isEmpty else { return }
+        statusResetTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+            self?.statusResetTimer = nil
             self?.statusItem.button?.title = ""
         }
     }
@@ -290,10 +302,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             if self.lastKnownLockedState != locked {
                 self.logger.info("检测到锁屏状态变化：\(locked ? "已锁定" : "已解锁", privacy: .public)")
                 self.lastKnownLockedState = locked
-                if locked {
-                    self.startContinuousFaceUnlock()
-                } else {
-                    self.pendingFaceUnlock?.cancel()
+            if locked {
+                self.startContinuousFaceUnlock()
+            } else {
+                self.faceUnlock.stopCurrentOperation()
+                self.faceOperationActive = false
+                self.pendingFaceUnlock?.cancel()
                     self.pendingFaceUnlock = nil
                     self.cancelUnlockTimers()
                     self.stopContinuousFaceUnlock()
@@ -308,11 +322,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func startContinuousFaceUnlock() {
         continuousFaceUnlockEnabled = true
+        continuousFaceUnlockUntil = Date().addingTimeInterval(faceUnlockActiveWindow)
         scheduleContinuousFaceUnlock(after: 0.5)
     }
 
     private func stopContinuousFaceUnlock() {
         continuousFaceUnlockEnabled = false
+        continuousFaceUnlockUntil = .distantPast
     }
 
     private func scheduleContinuousFaceUnlock(after delay: TimeInterval) {
@@ -326,7 +342,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func runContinuousFaceUnlockOnce() {
-        guard continuousFaceUnlockEnabled, autoUnlockEnabled, isScreenLocked() else { return }
+        guard continuousFaceUnlockEnabled, autoUnlockEnabled, isScreenLocked() else {
+            if !isScreenLocked() { stopContinuousFaceUnlock() }
+            return
+        }
+        guard Date() <= continuousFaceUnlockUntil else {
+            continuousFaceUnlockEnabled = false
+            logger.info("持续人脸识别窗口结束")
+            updateStatus("识别超时")
+            return
+        }
         guard !systemSleep, !displaySleep else { return }
         unlockWithFace(requireLockedScreen: true, showResult: false)
     }
