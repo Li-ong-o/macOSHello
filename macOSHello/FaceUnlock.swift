@@ -530,11 +530,6 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
             statusLabel.stringValue = reason.message + detail
             statusLabel.textColor = NSColor.systemRed
         }
-        if case .success = result {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.close()
-            }
-        }
     }
 
     @objc private func retryVerification() {
