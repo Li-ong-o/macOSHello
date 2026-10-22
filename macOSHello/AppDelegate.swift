@@ -1,5 +1,6 @@
 import Cocoa
 import CoreGraphics
+import os
 import ServiceManagement
 
 @NSApplicationMain
@@ -20,17 +21,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var unlockedAt = 0.0
     private var lastWakeAt = 0.0
     private var faceOperationActive = false
+    private var pendingFaceUnlock: DispatchWorkItem?
+    private var lockStateTimer: Timer?
+    private var lastKnownLockedState: Bool?
+    private var statusResetTimer: Timer?
     private var wakeUnlockTimer: Timer?
     private var postUnlockRetryTimer: Timer?
     private var systemObservers: [NSObjectProtocol] = []
 
     private let wakeUnlockRetryDelay: TimeInterval = 0.5
     private let wakeUnlockMaxRetries = 8
+    private let logger = Logger(subsystem: "com.tonydong.macOSHello", category: "face-unlock")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         configureStatusItem()
         registerSystemNotifications()
+        startLockStatePolling()
         checkAccessibilityPermission()
     }
 
@@ -148,15 +155,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func scheduleFaceUnlock(after delay: TimeInterval = 0.2) {
         guard autoUnlockEnabled, !systemSleep, !displaySleep else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.unlockWithFace(requireLockedScreen: true)
+        let work = DispatchWorkItem { [weak self] in
+            self?.pendingFaceUnlock = nil
+            self?.unlockWithFace(requireLockedScreen: true, showResult: false)
         }
+        pendingFaceUnlock?.cancel()
+        pendingFaceUnlock = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func unlockWithFace(requireLockedScreen: Bool) {
+    private func unlockWithFace(requireLockedScreen: Bool, showResult: Bool) {
         guard !faceOperationActive else { return }
         if requireLockedScreen { guard isScreenLocked() else { return } }
         faceOperationActive = true
+        updateStatus("识别中")
+        logger.info("开始人脸识别，要求锁屏：\(requireLockedScreen, privacy: .public)")
 
         Task { [weak self] in
             let result = await self?.faceUnlock.verify(timeout: 8) ?? .failure(reason: .cameraUnavailable, similarity: nil, profile: nil)
@@ -165,11 +178,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 self.faceOperationActive = false
                 switch result {
                 case .success(let similarity, let profile):
-                    print(String(format: "人脸匹配成功：%@，相似度 %.3f", profile.name, similarity))
-                    self.tryUnlockScreen()
+                    self.logger.info("人脸匹配成功：\(profile.name, privacy: .public)，相似度 \(self.format(similarity), privacy: .public)")
+                    if requireLockedScreen {
+                        self.updateStatus("识别成功，正在解锁")
+                        self.tryUnlockScreen()
+                    } else {
+                        self.updateStatus("识别成功")
+                    }
+                    if showResult {
+                        self.showInfo("识别成功", String(format: "%@ 的相似度 %.3f。", profile.name, similarity))
+                    }
                 case .failure(let reason, let similarity, _):
                     let detail = similarity.map { String(format: "，最高相似度 %.3f", $0) } ?? ""
-                    print("人脸解锁失败：\(reason.message)\(detail)")
+                    self.logger.error("人脸识别失败：\(reason.message, privacy: .public)\(detail, privacy: .public)")
+                    self.updateStatus("识别失败")
+                    if showResult {
+                        self.showInfo("识别失败", reason.message + detail)
+                    }
+                }
+            }
+        }
+    }
+
+    private func format(_ value: Float) -> String {
+        String(format: "%.3f", value)
+    }
+
+    private func updateStatus(_ text: String) {
+        statusItem.button?.title = text
+        statusResetTimer?.invalidate()
+        statusResetTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { [weak self] _ in
+            self?.statusItem.button?.title = ""
+        }
+    }
+
+    private func startLockStatePolling() {
+        lastKnownLockedState = isScreenLocked()
+        lockStateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let locked = self.isScreenLocked()
+            if self.lastKnownLockedState != locked {
+                self.logger.info("检测到锁屏状态变化：\(locked ? "已锁定" : "已解锁", privacy: .public)")
+                self.lastKnownLockedState = locked
+                if locked {
+                    self.scheduleFaceUnlock(after: 0.8)
+                } else {
+                    self.pendingFaceUnlock?.cancel()
+                    self.pendingFaceUnlock = nil
+                    self.cancelUnlockTimers()
                 }
             }
         }
@@ -277,7 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     @objc private func verifyFaceNow() {
-        unlockWithFace(requireLockedScreen: false)
+        unlockWithFace(requireLockedScreen: false, showResult: true)
     }
 
     @objc private func deleteAllFaces() {
@@ -445,7 +501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         SecItemDelete(query as CFDictionary)
         var attributes = query
         attributes[kSecValueData as String] = password.data(using: .utf8) ?? Data()
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(attributes as CFDictionary, nil)
         showInfo(status == errSecSuccess ? "已保存密码" : "保存失败", status == errSecSuccess ? "密码已保存到本机钥匙串。" : "钥匙串写入错误：\(status)")
     }
