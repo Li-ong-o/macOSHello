@@ -52,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private func configureStatusItem() {
         statusItem.button?.image = NSImage(named: "StatusBarDisconnected")
         statusItem.button?.imageScaling = .scaleProportionallyUpOrDown
+        if let image = statusItem.button?.image {
+            image.size = NSSize(width: 18, height: 18)
+        }
         statusItem.menu = makeMenu()
     }
 
@@ -82,7 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         autoItem.state = autoUnlockEnabled ? .on : .off
 
         menu.addItem(.separator())
-        menu.addItem(withTitle: "设置密码...", action: #selector(setPassword), keyEquivalent: "")
+        let passwordItem = menu.addItem(withTitle: passwordConfigured ? "设置密码..." : "设置密码...", action: #selector(setPassword), keyEquivalent: "")
+        passwordItem.state = passwordConfigured ? .on : .off
         let startupItem = menu.addItem(withTitle: "开机启动", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         startupItem.state = launchAtLoginEnabled ? .on : .off
         menu.addItem(withTitle: "立即锁定屏幕", action: #selector(lockScreenNow), keyEquivalent: "")
@@ -95,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     func menuWillOpen(_ menu: NSMenu) {
         if menu == faceProfilesMenu { rebuildFaceProfilesMenu() }
         if menu == cameraMenu { rebuildCameraMenu() }
+        refreshSettingMenuStates()
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -116,6 +121,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             return SMAppService.mainApp.status == .enabled
         }
         return false
+    }
+
+    private var passwordConfigured: Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.tonydong.macOSHello",
+            kSecAttrAccount as String: "unlock",
+            kSecReturnData as String: true
+        ]
+        var item: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess
+    }
+
+    private func refreshSettingMenuStates() {
+        statusItem.menu?.items.forEach { item in
+            switch item.action {
+            case #selector(toggleFaceLiveness):
+                item.state = faceUnlock.livenessEnabled ? .on : .off
+            case #selector(toggleAutoUnlock):
+                item.state = autoUnlockEnabled ? .on : .off
+            case #selector(toggleLaunchAtLogin):
+                item.state = launchAtLoginEnabled ? .on : .off
+            case #selector(setPassword):
+                item.state = passwordConfigured ? .on : .off
+            default:
+                break
+            }
+        }
     }
 
     private func registerSystemNotifications() {
