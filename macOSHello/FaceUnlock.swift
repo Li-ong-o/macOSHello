@@ -187,9 +187,10 @@ final class FaceUnlockService {
     private var enrollmentLiveness = FaceLivenessState()
     private var bestSimilarity: Float = -1
     private var matchedProfile: FaceProfile?
+    private var lastDetectedFace: FaceFeaturePrint?
     private var continuation: CheckedContinuation<FaceVerificationResult, Never>?
     private var enrollmentContinuation: CheckedContinuation<[[Float]], Never>?
-    private var previewFrameHandler: ((CGImage) -> Void)?
+    private var previewFrameHandler: ((CGImage, CGRect?) -> Void)?
     private let previewContext = CIContext()
     private let serviceQueue = DispatchQueue(label: "com.tonydong.macOSHello.face-service")
     private var operationDeadline = Date.distantPast
@@ -260,7 +261,7 @@ final class FaceUnlockService {
         return profile
     }
 
-    func verify(timeout: TimeInterval = 8, onFrame: ((CGImage) -> Void)? = nil) async -> FaceVerificationResult {
+    func verify(timeout: TimeInterval = 8, onFrame: ((CGImage, CGRect?) -> Void)? = nil) async -> FaceVerificationResult {
         loadEnrollment()
         guard !enrollmentStore.profiles.isEmpty else {
             return .failure(reason: .noEnrollment, similarity: nil, profile: nil)
@@ -312,21 +313,25 @@ final class FaceUnlockService {
         operationDeadline = Date().addingTimeInterval(timeout)
         operationTimedOut = false
         let camera = FaceCamera(cameraID: cameraID)
-        let previewHandler = previewFrameHandler
+        let previewHandler: ((CGImage, CGRect?) -> Void)? = previewFrameHandler
         do {
             try camera.start { [weak self] pixelBuffer in
                 guard let self else { return }
                 if let previewHandler {
                     let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+                    let boundingBox = self.lastDetectedFace?.boundingBox
                     if let cgImage = self.previewContext.createCGImage(
                         ciImage,
                         from: CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
                     ) {
-                        DispatchQueue.main.async { previewHandler(cgImage) }
+                        DispatchQueue.main.async { previewHandler(cgImage, boundingBox) }
                     }
                 }
                 self.engine.detect(pixelBuffer: pixelBuffer) { face in
                     guard let face else { return }
+                    DispatchQueue.main.async { [weak self] in
+                        self?.lastDetectedFace = face
+                    }
                     self.serviceQueue.async { handler(face) }
                 }
             }
@@ -359,6 +364,7 @@ final class FaceUnlockService {
     private func stopCamera() {
         camera?.stop()
         camera = nil
+        lastDetectedFace = nil
     }
 
     private func finish(_ result: FaceVerificationResult) {
@@ -428,8 +434,9 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         statusLabel.stringValue = "正在识别，请看向摄像头并缓慢转头"
         verificationTask = Task { [weak self] in
             guard let self else { return }
-            let result = await self.faceUnlock.verify(timeout: 15) { [weak self] image in
-                self?.imageView.image = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+            let result = await self.faceUnlock.verify(timeout: 15) { [weak self] image, normalizedFaceBox in
+            guard let self else { return }
+                self.imageView.image = self.annotatedImage(from: image, normalizedFaceBox: normalizedFaceBox)
             }
             await MainActor.run { [weak self] in
                 guard let self else { return }
@@ -448,7 +455,33 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
             statusLabel.stringValue = reason.message + detail
             statusLabel.textColor = NSColor.systemRed
         }
+        if case .success = result {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.close()
+            }
+        }
         didFinish?()
+    }
+
+    private func annotatedImage(from image: CGImage, normalizedFaceBox: CGRect?) -> NSImage {
+        let size = NSSize(width: image.width, height: image.height)
+        let output = NSImage(size: size)
+        output.lockFocus()
+        NSImage(cgImage: image, size: size).draw(in: NSRect(origin: .zero, size: size))
+        if let normalizedFaceBox {
+            let flippedBox = CGRect(
+                x: normalizedFaceBox.minX * size.width,
+                y: (1 - normalizedFaceBox.maxY) * size.height,
+                width: normalizedFaceBox.width * size.width,
+                height: normalizedFaceBox.height * size.height
+            )
+            NSColor.systemGreen.setStroke()
+            let path = NSBezierPath(roundedRect: flippedBox, xRadius: 10, yRadius: 10)
+            path.lineWidth = max(2, CGFloat(image.width) * 0.005)
+            path.stroke()
+        }
+        output.unlockFocus()
+        return output
     }
 
     func windowWillClose(_ notification: Notification) {
