@@ -266,6 +266,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func tryUnlockScreen(retryCount: Int = 0) {
         guard !systemSleep, !displaySleep else { return }
+        guard AXIsProcessTrusted() else {
+            logger.error("自动解锁停止：缺少辅助功能权限")
+            updateStatus("缺少辅助功能权限")
+            startAccessibilityPermissionRecovery()
+            return
+        }
         guard isScreenLocked() else {
             if retryCount < wakeUnlockMaxRetries {
                 scheduleWakeUnlock(after: wakeUnlockRetryDelay, retryCount: retryCount + 1)
@@ -276,11 +282,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         wakeUnlockTimer?.invalidate()
         wakeUnlockTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
             guard let self, self.isScreenLocked() else { return }
-            guard let password = self.fetchPassword(warn: true) else { return }
+            guard let password = self.fetchPassword(warn: false) else {
+                self.logger.error("自动解锁停止：尚未设置登录密码")
+                self.updateStatus("尚未设置登录密码")
+                return
+            }
             self.unlockedAt = Date().timeIntervalSince1970
+            self.updateStatus("正在输入密码")
+            self.logger.info("正在向登录窗口输入密码")
             self.fakeKeyStrokes(password)
 
-            if Date().timeIntervalSince1970 - self.lastWakeAt < 5, retryCount < self.wakeUnlockMaxRetries {
+            if retryCount < self.wakeUnlockMaxRetries {
                 self.postUnlockRetryTimer?.invalidate()
                 self.postUnlockRetryTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
                     guard let self, self.isScreenLocked() else { return }
@@ -456,8 +468,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let result = SACLockScreenImmediate()
         if result == noErr {
             logger.info("已请求锁定屏幕")
+            updateStatus("已请求锁定屏幕")
         } else {
             logger.error("锁屏请求失败：\(result, privacy: .public)")
+            updateStatus("锁屏失败")
             showInfo("锁屏失败", "系统返回错误 \(result)。")
         }
     }
@@ -522,14 +536,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let trusted = AXIsProcessTrustedWithOptions(options)
         logger.info("辅助功能初始状态：\(trusted)")
         guard !trusted else { return }
+        updateStatus("缺少辅助功能权限")
+        startAccessibilityPermissionRecovery()
+    }
 
-        accessibilityRetryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { [weak self] _ in
+    private func startAccessibilityPermissionRecovery() {
+        guard accessibilityRetryTimer == nil else { return }
+        accessibilityRetryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let stillUntrusted = !AXIsProcessTrustedWithOptions(options)
-            self.logger.error("辅助功能状态仍为未授权：\(stillUntrusted)")
-            if stillUntrusted {
-                self.updateStatus("缺少辅助功能权限")
+            if AXIsProcessTrusted() {
+                self.logger.info("辅助功能权限已恢复")
+                self.updateStatus("辅助功能已就绪")
+                self.accessibilityRetryTimer?.invalidate()
+                self.accessibilityRetryTimer = nil
             }
+        }
+        if let timer = accessibilityRetryTimer {
+            RunLoop.main.add(timer, forMode: .common)
         }
     }
 

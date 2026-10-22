@@ -1,34 +1,28 @@
 #include "lowlevel.h"
-#include <ApplicationServices/ApplicationServices.h>
+#include <dlfcn.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
 #include <IOKit/IOKitLib.h>
 
-OSStatus SACLockScreenImmediate(void)
+int SACLockScreenImmediate(void)
 {
-    CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
-    if (!source) {
+    // BLEUnlock links this Mach-O image directly. Loading it by path keeps the
+    // same system lock action without requiring the private framework at build time.
+    void *handle = dlopen(
+        "/System/Library/PrivateFrameworks/login.framework/Versions/A/login",
+        RTLD_LAZY
+    );
+    if (!handle) {
         return -1;
     }
 
-    CGEventFlags flags = kCGEventFlagMaskCommand | kCGEventFlagMaskControl;
-    CGEventRef keyDown = CGEventCreateKeyboardEvent(source, 12, true);
-    CGEventRef keyUp = CGEventCreateKeyboardEvent(source, 12, false);
-    if (!keyDown || !keyUp) {
-        if (keyDown) CFRelease(keyDown);
-        if (keyUp) CFRelease(keyUp);
-        CFRelease(source);
+    typedef int (*SACLockScreenImmediateFunction)(void);
+    SACLockScreenImmediateFunction lock =
+        (SACLockScreenImmediateFunction)dlsym(handle, "SACLockScreenImmediate");
+    if (!lock) {
         return -2;
     }
 
-    CGEventSetFlags(keyDown, flags);
-    CGEventSetFlags(keyUp, flags);
-    CGEventPost(kCGHIDEventTap, keyDown);
-    CGEventPost(kCGHIDEventTap, keyUp);
-
-    CFRelease(keyDown);
-    CFRelease(keyUp);
-    CFRelease(source);
-    return noErr;
+    return lock();
 }
 
 void wakeDisplay(void)
