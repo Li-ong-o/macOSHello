@@ -82,6 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
         let livenessItem = menu.addItem(withTitle: "活体检测", action: #selector(toggleFaceLiveness), keyEquivalent: "")
         livenessItem.state = faceUnlock.livenessEnabled ? .on : .off
+        let postureItem = menu.addItem(withTitle: "坐姿检测", action: #selector(togglePostureDetection), keyEquivalent: "")
+        postureItem.state = faceUnlock.postureDetectionEnabled ? .on : .off
         let autoItem = menu.addItem(withTitle: "自动人脸解锁", action: #selector(toggleAutoUnlock), keyEquivalent: "")
         autoItem.state = autoUnlockEnabled ? .on : .off
 
@@ -141,6 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             switch item.action {
             case #selector(toggleFaceLiveness):
                 item.state = faceUnlock.livenessEnabled ? .on : .off
+            case #selector(togglePostureDetection):
+                item.state = faceUnlock.postureDetectionEnabled ? .on : .off
             case #selector(toggleAutoUnlock):
                 item.state = autoUnlockEnabled ? .on : .off
             case #selector(toggleLaunchAtLogin):
@@ -483,6 +487,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         prefs.set(enabled, forKey: "autoFaceUnlockEnabled")
         statusItem.menu?.items.forEach { item in
             if item.action == #selector(toggleAutoUnlock) { item.state = enabled ? .on : .off }
+        }
+    }
+
+    @objc private func togglePostureDetection() {
+        let enabled = !faceUnlock.postureDetectionEnabled
+        prefs.set(enabled, forKey: "postureDetectionEnabled")
+        statusItem.menu?.items.forEach { item in
+            if item.action == #selector(togglePostureDetection) { item.state = enabled ? .on : .off }
         }
     }
 

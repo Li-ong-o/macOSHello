@@ -44,6 +44,49 @@ struct FaceFeaturePrint {
     let embedding: [Float]
 }
 
+struct PostureObservation {
+    let shoulderTilt: Float
+    let headForward: Float
+}
+
+struct PostureDetector {
+    func detect(pixelBuffer: CVPixelBuffer, completion: @escaping (PostureObservation?) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            let request = VNDetectHumanBodyPoseRequest()
+            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            do {
+                try handler.perform([request])
+                completion((request.results ?? []).first.map(Self.measure))
+            } catch {
+                completion(nil)
+            }
+        }
+    }
+
+    private static func measure(_ observation: VNHumanBodyPoseObservation) -> PostureObservation {
+        func point(_ name: VNHumanBodyPoseObservation.JointName) -> CGPoint? {
+            try? observation.recognizedPoint(name).location
+        }
+
+        guard let leftShoulder = point(.leftShoulder),
+              let rightShoulder = point(.rightShoulder) else {
+            return PostureObservation(shoulderTilt: 0, headForward: 0)
+        }
+
+        let shoulderWidth = abs(leftShoulder.x - rightShoulder.x)
+        let shoulderTilt = shoulderWidth > 0.01
+            ? Float(abs(leftShoulder.y - rightShoulder.y) / shoulderWidth)
+            : 0
+        var headForward: Float = 0
+        if let nose = point(.nose) {
+            let shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2
+            let normalizedOffset = (nose.x - shoulderMidX) / max(shoulderWidth, 0.01)
+            headForward = Float(max(0, normalizedOffset))
+        }
+        return PostureObservation(shoulderTilt: shoulderTilt, headForward: headForward)
+    }
+}
+
 final class FaceFeaturePrintGenerator {
     private let queue = DispatchQueue(label: "com.tonydong.macOSHello.face-engine")
 
@@ -182,6 +225,7 @@ final class FaceUnlockService {
     private let logger = Logger(subsystem: "com.tonydong.macOSHello", category: "face-unlock")
     private var camera: FaceCamera?
     private let engine = FaceFeaturePrintGenerator()
+    private let postureDetector = PostureDetector()
     private var enrollmentStore = FaceEnrollmentStore()
     private var verifyState = FaceLivenessState()
     private var enrollmentSamples: [[Float]] = []
@@ -213,6 +257,11 @@ final class FaceUnlockService {
     var livenessEnabled: Bool {
         if prefs.object(forKey: "faceLivenessEnabled") == nil { return true }
         return prefs.bool(forKey: "faceLivenessEnabled")
+    }
+
+    var postureDetectionEnabled: Bool {
+        if prefs.object(forKey: "postureDetectionEnabled") == nil { return true }
+        return prefs.bool(forKey: "postureDetectionEnabled")
     }
 
     func loadEnrollment() {
@@ -346,6 +395,7 @@ final class FaceUnlockService {
         operationTimedOut = false
         let camera = FaceCamera(cameraID: cameraID)
         let previewHandler: ((CGImage, CGRect?) -> Void)? = previewFrameHandler
+        let postureDetectionEnabled = self.postureDetectionEnabled
         do {
             try camera.start { [weak self] pixelBuffer in
                 guard let self else { return }
@@ -357,6 +407,17 @@ final class FaceUnlockService {
                         from: CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
                     ) {
                         DispatchQueue.main.async { previewHandler(cgImage, boundingBox) }
+                    }
+                }
+                if postureDetectionEnabled {
+                    self.postureDetector.detect(pixelBuffer: pixelBuffer) { observation in
+                        guard let observation else { return }
+                        let badTilt = observation.shoulderTilt > 0.35
+                        let badForward = observation.headForward > 0.42
+                        if badTilt || badForward {
+                            let detail = badTilt && badForward ? "肩膀歪斜，头部前伸" : (badTilt ? "肩膀歪斜" : "头部前伸")
+                            self.logger.info("坐姿提醒：\(detail, privacy: .public)")
+                        }
                     }
                 }
                 self.engine.detect(pixelBuffer: pixelBuffer) { face in
