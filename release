@@ -1,0 +1,76 @@
+#!/bin/bash -e
+
+set -o pipefail
+
+if [ ! "$PASSWORD" ]; then
+    echo set app-specific password in PASSWORD env var
+    exit 1
+fi
+
+USERNAME=takeshi.sone@gmail.com
+TEAM=42LGPQYC7M
+APPNAME=BLEUnlock
+
+BASEDIR=$(cd $(dirname $0); pwd)
+BUILDDIR=$BASEDIR/build
+RELEASEDIR=$BUILDDIR/Release
+TMPDIR=$BUILDDIR/tmp
+
+extract_info() {
+    local app=$1
+    local key=$2
+    plutil -p $app/Contents/Info.plist |
+        awk "/$key/ {print \$3}" |
+        sed 's/"//g'
+}
+
+notarize() {
+    local app=$1
+    local id=$(extract_info $app CFBundleIdentifier)
+
+    rm -f $TMPDIR/upload.zip
+    ditto -c -k --keepParent $app $TMPDIR/upload.zip
+    xcrun notarytool submit --apple-id $USERNAME --password "$PASSWORD" $TMPDIR/upload.zip \
+        --team-id $TEAM 2>&1 | tee $TMPDIR/altool.log
+    uuid=$(awk '/ id:/ { print $2; exit }' $TMPDIR/altool.log)
+    while true; do
+        sleep 2
+        xcrun notarytool info $uuid --apple-id $USERNAME \
+            --password "$PASSWORD" --team-id $TEAM 2>&1 |
+            tee $TMPDIR/altool.log || true
+        status=$(grep status: $TMPDIR/altool.log | sed 's/^.*status: *//')
+        if [ "$status" ] && [ "$status" != "In Progress" ]; then
+            break
+        fi
+    done
+    if [ "$status" != "Accepted" ]; then
+        exit 1
+    fi
+    xcrun stapler staple $app
+}
+
+#rm -rf $BUILDDIR
+
+test -d $TMPDIR || mkdir -p $TMPDIR
+
+xcodebuild \
+   -scheme $APPNAME \
+   -archivePath $RELEASEDIR/$APPNAME.xcarchive \
+   archive
+
+xcodebuild \
+   -exportArchive \
+   -archivePath $RELEASEDIR/$APPNAME.xcarchive \
+   -exportOptionsPlist $BASEDIR/ExportOptions.plist \
+   -exportPath $RELEASEDIR
+
+notarize $RELEASEDIR/$APPNAME.app/Contents/Library/LoginItems/Launcher.app
+notarize $RELEASEDIR/$APPNAME.app
+
+version=$(extract_info $RELEASEDIR/$APPNAME.app CFBundleShortVersionString)
+
+ditto -c -k --keepParent $RELEASEDIR/$APPNAME.app $RELEASEDIR/$APPNAME-$version.zip
+
+v=$version-$(extract_info $RELEASEDIR/$APPNAME.app CFBundleVersion)
+mkdir -p archives/$v
+cp -a "$RELEASEDIR/$APPNAME.xcarchive" archives/$v
