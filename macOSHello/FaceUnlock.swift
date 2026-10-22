@@ -268,6 +268,21 @@ final class FaceUnlockService {
         onFrame: ((CGImage, CGRect?) -> Void)? = nil,
         onProgress: ((Float, Int) -> Void)? = nil
     ) async -> FaceVerificationResult {
+        let canStart = serviceQueue.sync { [weak self] in
+            guard let self else { return false }
+            return self.camera == nil && self.continuation == nil && self.enrollmentContinuation == nil
+        }
+        guard canStart else {
+            return .failure(reason: .cameraUnavailable, similarity: nil, profile: nil)
+        }
+        return await performVerify(timeout: timeout, onFrame: onFrame, onProgress: onProgress)
+    }
+
+    private func performVerify(
+        timeout: TimeInterval,
+        onFrame: ((CGImage, CGRect?) -> Void)?,
+        onProgress: ((Float, Int) -> Void)?
+    ) async -> FaceVerificationResult {
         loadEnrollment()
         guard !enrollmentStore.profiles.isEmpty else {
             return .failure(reason: .noEnrollment, similarity: nil, profile: nil)
@@ -454,7 +469,7 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         imageView.imageScaling = .scaleProportionallyUpOrDown
         contentView.addSubview(imageView)
 
-        statusLabel.frame = NSRect(x: 16, y: 10, width: 448, height: 24)
+        statusLabel.frame = NSRect(x: 16, y: 12, width: 350, height: 20)
         statusLabel.textColor = .white
         statusLabel.font = .systemFont(ofSize: 14, weight: .medium)
         statusLabel.lineBreakMode = .byTruncatingTail
@@ -476,7 +491,9 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         guard !isVerifying else { return }
         isVerifying = true
         retryButton.isEnabled = false
+        imageView.image = nil
         statusLabel.stringValue = "正在识别，请看向摄像头并缓慢转头"
+        statusLabel.textColor = .white
         verificationTask = Task { [weak self] in
             guard let self else { return }
             let result = await self.faceUnlock.verify(timeout: 15) { [weak self] image, normalizedFaceBox in
@@ -518,7 +535,6 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
                 self?.close()
             }
         }
-        didFinish?()
     }
 
     @objc private func retryVerification() {
