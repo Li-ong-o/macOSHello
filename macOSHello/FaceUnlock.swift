@@ -3,6 +3,7 @@ import AppKit
 import CoreGraphics
 import CoreVideo
 import Foundation
+import os
 import Vision
 
 struct FaceProfile: Codable, Identifiable {
@@ -170,7 +171,7 @@ enum FaceUnlockError: Error, LocalizedError {
         switch self {
         case .noCamera: return "没有可用的摄像头。"
         case .cameraPermissionDenied: return "摄像头权限被拒绝。"
-        case .timeout: return "人脸采集超时。"
+        case .timeout: return "人脸采集超时（需要连续 8 帧达到阈值）。"
         case .enrollmentMissing: return "尚未注册人脸。"
         }
     }
@@ -178,6 +179,7 @@ enum FaceUnlockError: Error, LocalizedError {
 
 final class FaceUnlockService {
     let prefs = UserDefaults.standard
+    private let logger = Logger(subsystem: "com.tonydong.macOSHello", category: "face-unlock")
     private var camera: FaceCamera?
     private let engine = FaceFeaturePrintGenerator()
     private var enrollmentStore = FaceEnrollmentStore()
@@ -261,7 +263,11 @@ final class FaceUnlockService {
         return profile
     }
 
-    func verify(timeout: TimeInterval = 8, onFrame: ((CGImage, CGRect?) -> Void)? = nil) async -> FaceVerificationResult {
+    func verify(
+        timeout: TimeInterval = 8,
+        onFrame: ((CGImage, CGRect?) -> Void)? = nil,
+        onProgress: ((Float, Int) -> Void)? = nil
+    ) async -> FaceVerificationResult {
         loadEnrollment()
         guard !enrollmentStore.profiles.isEmpty else {
             return .failure(reason: .noEnrollment, similarity: nil, profile: nil)
@@ -273,6 +279,7 @@ final class FaceUnlockService {
         bestSimilarity = -1
         matchedProfile = nil
         previewFrameHandler = onFrame
+        let progressHandler = onProgress
 
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
@@ -283,7 +290,15 @@ final class FaceUnlockService {
                     guard let match = self.enrollmentStore.bestMatch(for: face.embedding) else { return }
                     self.bestSimilarity = max(self.bestSimilarity, match.similarity)
                     self.matchedProfile = match.profile
-                    self.verifyState.observe(face, matched: match.similarity >= self.threshold)
+                    let matched = match.similarity >= self.threshold
+                    self.verifyState.observe(face, matched: matched)
+                    if let progressHandler {
+                        let matchedFrames = self.verifyState.matchedFrames
+                        DispatchQueue.main.async {
+                            progressHandler(match.similarity, matchedFrames)
+                        }
+                    }
+                    self.logger.info("人脸识别进度：相似度 \(match.similarity, privacy: .public)，达到阈值 \(matched, privacy: .public)，连续达标帧数 \(self.verifyState.matchedFrames, privacy: .public)")
                     if self.verifyState.isLive(matchThreshold: self.threshold, livenessRequired: self.livenessEnabled) {
                         self.finish(.success(similarity: match.similarity, profile: match.profile))
                     }
@@ -435,8 +450,18 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         verificationTask = Task { [weak self] in
             guard let self else { return }
             let result = await self.faceUnlock.verify(timeout: 15) { [weak self] image, normalizedFaceBox in
-            guard let self else { return }
+                guard let self else { return }
                 self.imageView.image = self.annotatedImage(from: image, normalizedFaceBox: normalizedFaceBox)
+            } onProgress: { [weak self] similarity, matchedFrames in
+                guard let self else { return }
+                let threshold = self.faceUnlock.threshold
+                self.statusLabel.textColor = similarity >= threshold ? NSColor.systemGreen : NSColor.white
+                self.statusLabel.stringValue = String(
+                    format: "实时相似度 %.3f / 阈值 %.2f，连续达标 %d/8 帧",
+                    similarity,
+                    threshold,
+                    matchedFrames
+                )
             }
             await MainActor.run { [weak self] in
                 guard let self else { return }
