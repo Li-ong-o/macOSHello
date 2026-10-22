@@ -1,23 +1,34 @@
 #include "lowlevel.h"
-#include <dlfcn.h>
+#include <ApplicationServices/ApplicationServices.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
 #include <IOKit/IOKitLib.h>
 
 OSStatus SACLockScreenImmediate(void)
 {
-    void *handle = dlopen("/System/Library/PrivateFrameworks/LoginUICore.framework/LoginUICore", RTLD_LAZY);
-    if (!handle) {
+    CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+    if (!source) {
         return -1;
     }
 
-    typedef OSStatus (*SACScreenLockFunction)(void);
-    SACScreenLockFunction lock = (SACScreenLockFunction)dlsym(handle, "SACScreenLock");
-    if (!lock) {
-        dlclose(handle);
+    CGEventFlags flags = kCGEventFlagMaskCommand | kCGEventFlagMaskControl;
+    CGEventRef keyDown = CGEventCreateKeyboardEvent(source, 12, true);
+    CGEventRef keyUp = CGEventCreateKeyboardEvent(source, 12, false);
+    if (!keyDown || !keyUp) {
+        if (keyDown) CFRelease(keyDown);
+        if (keyUp) CFRelease(keyUp);
+        CFRelease(source);
         return -2;
     }
 
-    return lock();
+    CGEventSetFlags(keyDown, flags);
+    CGEventSetFlags(keyUp, flags);
+    CGEventPost(kCGHIDEventTap, keyDown);
+    CGEventPost(kCGHIDEventTap, keyUp);
+
+    CFRelease(keyDown);
+    CFRelease(keyUp);
+    CFRelease(source);
+    return noErr;
 }
 
 void wakeDisplay(void)
