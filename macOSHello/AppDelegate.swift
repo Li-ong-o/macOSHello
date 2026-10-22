@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var wakeUnlockTimer: Timer?
     private var postUnlockRetryTimer: Timer?
     private var systemObservers: [NSObjectProtocol] = []
+    private var continuousFaceUnlockEnabled = false
 
     private let wakeUnlockRetryDelay: TimeInterval = 0.5
     private let wakeUnlockMaxRetries = 8
@@ -191,7 +192,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 case .failure(let reason, let similarity, _):
                     let detail = similarity.map { String(format: "，最高相似度 %.3f", $0) } ?? ""
                     self.logger.error("人脸识别失败：\(reason.message, privacy: .public)\(detail, privacy: .public)")
-                    self.updateStatus("识别失败")
+                    if requireLockedScreen, self.continuousFaceUnlockEnabled {
+                        self.updateStatus("持续识别中")
+                        self.scheduleContinuousFaceUnlock(after: 1)
+                    } else {
+                        self.updateStatus("识别失败")
+                    }
                     if showResult {
                         self.showInfo("识别失败", reason.message + detail)
                     }
@@ -221,14 +227,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 self.logger.info("检测到锁屏状态变化：\(locked ? "已锁定" : "已解锁", privacy: .public)")
                 self.lastKnownLockedState = locked
                 if locked {
-                    self.scheduleFaceUnlock(after: 0.8)
+                    self.startContinuousFaceUnlock()
                 } else {
                     self.pendingFaceUnlock?.cancel()
                     self.pendingFaceUnlock = nil
                     self.cancelUnlockTimers()
+                    self.stopContinuousFaceUnlock()
                 }
             }
         }
+    }
+
+    private func startContinuousFaceUnlock() {
+        continuousFaceUnlockEnabled = true
+        scheduleContinuousFaceUnlock(after: 0.5)
+    }
+
+    private func stopContinuousFaceUnlock() {
+        continuousFaceUnlockEnabled = false
+    }
+
+    private func scheduleContinuousFaceUnlock(after delay: TimeInterval) {
+        let work = DispatchWorkItem { [weak self] in
+            self?.pendingFaceUnlock = nil
+            self?.runContinuousFaceUnlockOnce()
+        }
+        pendingFaceUnlock?.cancel()
+        pendingFaceUnlock = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func runContinuousFaceUnlockOnce() {
+        guard continuousFaceUnlockEnabled, autoUnlockEnabled, isScreenLocked() else { return }
+        unlockWithFace(requireLockedScreen: true, showResult: false)
     }
 
     private func tryUnlockScreen(retryCount: Int = 0) {
@@ -422,7 +453,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         cancelUnlockTimers()
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/System/Library/CoreServices/RemoteManagement/AppleVNCServer.bundle/Contents/Support/LockScreen.app/Contents/MacOS/LockScreen")
-        try? task.run()
+        do {
+            try task.run()
+        } catch {
+            logger.error("锁屏命令执行失败：\(error.localizedDescription, privacy: .public)")
+            showInfo("锁屏失败", error.localizedDescription)
+        }
     }
 
     @objc private func showAbout() {
