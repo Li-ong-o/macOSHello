@@ -156,6 +156,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
     let timeoutMenu = NSMenu()
     let lockDelayMenu = NSMenu()
     let updateMenu = NSMenu()
+    let faceMenu = NSMenu()
+    let faceModeMenu = NSMenu()
+    let faceThresholdMenu = NSMenu()
+    let faceCameraMenu = NSMenu()
+    let faceProfilesMenu = NSMenu()
+    let faceUnlock = FaceUnlockService()
     var updateMenuItem: NSMenuItem?
     var checkForUpdatesMenuItem: NSMenuItem?
     var automaticUpdateChecksMenuItem: NSMenuItem?
@@ -255,6 +261,18 @@ struct DeviceMenuItemView {
                     item.state = .off
                 }
             }
+        } else if menu == faceModeMenu {
+            for item in menu.items {
+                item.state = item.tag == faceUnlock.mode.rawValue ? .on : .off
+            }
+        } else if menu == faceThresholdMenu {
+            for item in menu.items {
+                item.state = Float(item.tag) / 100 == faceUnlock.threshold ? .on : .off
+            }
+        } else if menu == faceCameraMenu {
+            rebuildFaceCameraMenu()
+        } else if menu == faceProfilesMenu {
+            rebuildFaceProfilesMenu()
         }
     }
 
@@ -1551,7 +1569,11 @@ struct DeviceMenuItemView {
                         print("Skipping wake display retry while display wake is still pending")
                     }
                 }
-                tryUnlockScreen()
+                if faceUnlock.mode == .faceAndBLE || faceUnlock.mode == .faceOnly {
+                    unlockWithFace()
+                } else if faceUnlock.mode != .faceOnly {
+                    tryUnlockScreen()
+                }
             }
         } else if shouldLock {
             if (!isScreenLocked() && ble.lockRSSI != ble.LOCK_DISABLED) {
@@ -1616,9 +1638,9 @@ struct DeviceMenuItemView {
         return now - sleepReference >= conservativeWakeSleepThreshold
     }
     
-    func tryUnlockScreen(retryCount: Int = 0) {
+    func tryUnlockScreen(retryCount: Int = 0, allowWithoutBLE: Bool = false) {
         guard !manualLock else { return }
-        guard ble.presence else { return }
+        guard ble.presence || allowWithoutBLE else { return }
         guard ble.unlockRSSI != ble.UNLOCK_DISABLED else { return }
         guard !systemSleep else { return }
         guard !displaySleep else { return }
@@ -1727,6 +1749,11 @@ struct DeviceMenuItemView {
         lastWakeAt = Date().timeIntervalSince1970
         lastDisplayWakeRequestAt = 0
         scheduleWakeUnlock(after: 0.75)
+        if faceUnlock.mode == .faceOnly || faceUnlock.mode == .faceOrBLE {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+                self?.unlockWithFace(allowWithoutBLE: true)
+            }
+        }
     }
 
     @objc func onDisplaySleep() {
@@ -2268,6 +2295,158 @@ struct DeviceMenuItemView {
         return item
     }
 
+    private var faceUnlockOperationActive = false
+
+    func unlockWithFace(allowWithoutBLE: Bool = false) {
+        guard !faceUnlockOperationActive else { return }
+        guard isScreenLocked() else { return }
+        faceUnlockOperationActive = true
+
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await self.faceUnlock.verify(timeout: 8)
+            self.faceUnlockOperationActive = false
+
+            switch result {
+            case .success(let similarity, let profile):
+                print(String(format: "Face unlock matched %@ at %.3f", profile.name, similarity))
+                switch self.faceUnlock.mode {
+                case .bleOnly:
+                    break
+                case .faceOnly, .faceOrBLE:
+                    self.tryUnlockScreen(allowWithoutBLE: true)
+                case .faceAndBLE:
+                    self.tryUnlockScreen(allowWithoutBLE: false)
+                }
+            case .failure(let reason, let similarity, _):
+                let detail = similarity.map { String(format: " Best similarity: %.3f", $0) } ?? ""
+                print("Face unlock failed: \(reason.message)\(detail)")
+            }
+        }
+    }
+
+    @objc func enrollFace() {
+        let alert = NSAlert()
+        alert.messageText = "Register a Face"
+        alert.informativeText = "Enter a name for this person. Look at the camera and slowly turn your head left and right until 8 samples are captured. Processing is local."
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+        let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        nameField.placeholderString = "Name"
+        alert.accessoryView = nameField
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn, !nameField.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+
+        Task { [weak self] in
+            do {
+                let profile = try await self?.faceUnlock.enroll(name: nameField.stringValue.trimmingCharacters(in: .whitespaces))
+                await MainActor.run {
+                    self?.showFaceInfo("Registered \(profile?.name ?? "Face")", info: "The face samples were saved locally.")
+                }
+            } catch {
+                await MainActor.run {
+                    self?.showFaceInfo("Face Registration Failed", info: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    @objc func verifyFaceNow() {
+        unlockWithFace(allowWithoutBLE: true)
+    }
+
+    @objc func deleteAllFaces() {
+        let alert = NSAlert()
+        alert.messageText = "Delete All Registered Faces?"
+        alert.informativeText = "This removes all locally stored face templates."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        faceUnlock.deleteAll()
+        rebuildFaceProfilesMenu()
+    }
+
+    @objc func setFaceUnlockMode(_ menuItem: NSMenuItem) {
+        guard let mode = FaceUnlockMode(rawValue: menuItem.tag) else { return }
+        faceUnlock.mode = mode
+    }
+
+    @objc func setFaceSimilarityThreshold(_ menuItem: NSMenuItem) {
+        faceUnlock.threshold = Float(menuItem.tag) / 100
+    }
+
+    @objc func setFaceCamera(_ menuItem: NSMenuItem) {
+        prefs.set(menuItem.representedObject as? String ?? "", forKey: "faceCameraID")
+    }
+
+    @objc func toggleFaceLiveness(_ menuItem: NSMenuItem) {
+        let enabled = !prefs.bool(forKey: "faceLivenessEnabled")
+        prefs.set(enabled, forKey: "faceLivenessEnabled")
+        menuItem.state = enabled ? .on : .off
+    }
+
+    @objc func removeFaceProfile(_ menuItem: NSMenuItem) {
+        guard let idString = menuItem.representedObject as? String, let id = UUID(uuidString: idString) else { return }
+        var store = FaceEnrollmentStore()
+        if let data = try? Data(contentsOf: FaceEnrollmentStore.storageURL) {
+            store = (try? JSONDecoder().decode(FaceEnrollmentStore.self, from: data)) ?? store
+        }
+        store.profiles.removeAll { $0.id == id }
+        if let data = try? JSONEncoder().encode(store) {
+            try? data.write(to: FaceEnrollmentStore.storageURL, options: [.atomic])
+        }
+        rebuildFaceProfilesMenu()
+    }
+
+    private func showFaceInfo(_ title: String, info: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = info
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    private func rebuildFaceCameraMenu() {
+        faceCameraMenu.removeAllItems()
+        let cameras = FaceCamera.availableCameras()
+        guard !cameras.isEmpty else {
+            let item = faceCameraMenu.addItem(withTitle: "No Camera Found", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            return
+        }
+        for camera in cameras {
+            let item = faceCameraMenu.addItem(
+                withTitle: camera.localizedName,
+                action: #selector(setFaceCamera),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = camera.uniqueID
+            item.state = camera.uniqueID == faceUnlock.cameraID ? .on : .off
+        }
+    }
+
+    private func rebuildFaceProfilesMenu() {
+        faceProfilesMenu.removeAllItems()
+        let profiles = faceUnlock.profiles
+        guard !profiles.isEmpty else {
+            let item = faceProfilesMenu.addItem(withTitle: "No Registered Faces", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            return
+        }
+        for profile in profiles {
+            let item = faceProfilesMenu.addItem(
+                withTitle: profile.name,
+                action: #selector(removeFaceProfile),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = profile.id.uuidString
+        }
+    }
+
     func constructRSSISection(_ menu: NSMenu, _ action: Selector, kind: String, disabledTag: Int, disabledFirst: Bool) {
         if disabledFirst {
             addSettingsItem(menu, title: t("disabled"), action: action, tag: disabledTag, kind: kind)
@@ -2382,6 +2561,44 @@ struct DeviceMenuItemView {
         if prefs.bool(forKey: "sleepDisplay") {
             item.state = .on
         }
+
+        let faceUnlockItem = mainMenu.addItem(withTitle: "Face Unlock", action: nil, keyEquivalent: "")
+        faceUnlockItem.submenu = faceMenu
+        faceMenu.addItem(withTitle: "Register Face...", action: #selector(enrollFace), keyEquivalent: "").target = self
+        faceMenu.addItem(withTitle: "Verify Face Now", action: #selector(verifyFaceNow), keyEquivalent: "").target = self
+
+        let profilesItem = faceMenu.addItem(withTitle: "Registered Faces", action: nil, keyEquivalent: "")
+        profilesItem.submenu = faceProfilesMenu
+        faceProfilesMenu.delegate = self
+        rebuildFaceProfilesMenu()
+
+        let modeItem = faceMenu.addItem(withTitle: "Unlock Mode", action: nil, keyEquivalent: "")
+        modeItem.submenu = faceModeMenu
+        for mode in [FaceUnlockMode.bleOnly, .faceOnly, .faceOrBLE, .faceAndBLE] {
+            let item = faceModeMenu.addItem(withTitle: mode.title, action: #selector(setFaceUnlockMode), keyEquivalent: "")
+            item.tag = mode.rawValue
+            item.target = self
+        }
+        faceModeMenu.delegate = self
+
+        let thresholdItem = faceMenu.addItem(withTitle: "Similarity Threshold", action: nil, keyEquivalent: "")
+        thresholdItem.submenu = faceThresholdMenu
+        for value in [80, 84, 86, 90, 94, 98] {
+            let item = faceThresholdMenu.addItem(withTitle: String(format: "%.2f", Float(value) / 100), action: #selector(setFaceSimilarityThreshold), keyEquivalent: "")
+            item.tag = value
+            item.target = self
+        }
+        faceThresholdMenu.delegate = self
+
+        let cameraItem = faceMenu.addItem(withTitle: "Camera", action: nil, keyEquivalent: "")
+        cameraItem.submenu = faceCameraMenu
+        faceCameraMenu.delegate = self
+        rebuildFaceCameraMenu()
+
+        let livenessItem = faceMenu.addItem(withTitle: "Liveness Detection", action: #selector(toggleFaceLiveness), keyEquivalent: "")
+        livenessItem.target = self
+        livenessItem.state = faceUnlock.livenessEnabled ? .on : .off
+        faceMenu.addItem(withTitle: "Delete All Faces", action: #selector(deleteAllFaces), keyEquivalent: "").target = self
         
         mainMenu.addItem(withTitle: t("set_password"), action: #selector(askPassword), keyEquivalent: "")
 

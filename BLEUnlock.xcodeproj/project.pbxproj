@@ -17,6 +17,7 @@
 		3D6070E226DBC68E00EE4E48 /* LEDeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D6070E126DBC68E00EE4E48 /* LEDeviceInfo.swift */; };
 		3D79FD7D226C335100A373C0 /* appleDeviceNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D79FD7C226C335100A373C0 /* appleDeviceNames.swift */; };
 		3D95379522784D550017D8B9 /* AboutBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D95379322784D550017D8B9 /* AboutBox.swift */; };
+		A10000010000000000000001 /* FaceUnlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000001 /* FaceUnlock.swift */; };
 		3D953797227853E20017D8B9 /* AboutBox.xib in Resources */ = {isa = PBXBuildFile; fileRef = 3D953799227853E20017D8B9 /* AboutBox.xib */; };
 		3DCAAA7D22ADE9830011A2DA /* checkUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DCAAA7C22ADE9830011A2DA /* checkUpdate.swift */; };
 		3DD4B654226C1C3200451B7B /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DD4B653226C1C3200451B7B /* AppDelegate.swift */; };
@@ -62,6 +63,7 @@
 		3D6070E126DBC68E00EE4E48 /* LEDeviceInfo.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LEDeviceInfo.swift; sourceTree = "<group>"; };
 		3D79FD7C226C335100A373C0 /* appleDeviceNames.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = appleDeviceNames.swift; sourceTree = "<group>"; };
 		3D95379322784D550017D8B9 /* AboutBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutBox.swift; sourceTree = "<group>"; };
+		A100000000000000000000001 /* FaceUnlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceUnlock.swift; sourceTree = "<group>"; };
 		3D953798227853E20017D8B9 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/AboutBox.xib; sourceTree = "<group>"; };
 		3D95379B227853EC0017D8B9 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/AboutBox.strings; sourceTree = "<group>"; };
 		3DC0BC6922728FF1001145EC /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -138,6 +140,7 @@
 			isa = PBXGroup;
 			children = (
 				3D95379322784D550017D8B9 /* AboutBox.swift */,
+				A100000000000000000000001 /* FaceUnlock.swift */,
 				3D953799227853E20017D8B9 /* AboutBox.xib */,
 				3D600A35226CC1A40068FB7B /* Localizable.strings */,
 				3DD4B665226C1DF200451B7B /* BLE.swift */,
@@ -199,8 +202,8 @@
 			);
 			dependencies = (
 			);
-			name = BLEUnlock;
-			productName = BLEUnlock;
+			name = macOSHello;
+			productName = macOSHello;
 			productReference = 3DD4B650226C1C3200451B7B /* BLEUnlock.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -327,6 +330,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3DD4B654226C1C3200451B7B /* AppDelegate.swift in Sources */,
+				A10000010000000000000001 /* FaceUnlock.swift in Sources */,
 				3DD4B666226C1DF200451B7B /* BLE.swift in Sources */,
 				3DD4B664226C1CF000451B7B /* lowlevel.c in Sources */,
 				3DCAAA7D22ADE9830011A2DA /* checkUpdate.swift in Sources */,
@@ -395,7 +399,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.Skyearn.BLEUnlock.Launcher;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tonydong.macOSHello.Launcher;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -419,7 +423,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.Skyearn.BLEUnlock.Launcher;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tonydong.macOSHello.Launcher;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
@@ -479,7 +483,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.13;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -536,7 +540,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.13;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -564,7 +568,7 @@
 				);
 				MARKETING_VERSION = 1.13.6;
 				CURRENT_PROJECT_VERSION = 1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.Skyearn.BLEUnlock;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tonydong.macOSHello;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "BLEUnlock/BLEUnlock-Bridging-Header.h";
@@ -596,7 +600,7 @@
 				);
 				MARKETING_VERSION = 1.13.6;
 				CURRENT_PROJECT_VERSION = 1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.Skyearn.BLEUnlock;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tonydong.macOSHello;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "BLEUnlock/BLEUnlock-Bridging-Header.h";
