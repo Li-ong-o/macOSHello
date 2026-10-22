@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var inScreensaver = false
     private var unlockedAt = 0.0
     private var lastWakeAt = 0.0
+    private var lastSystemSleepStartedAt = 0.0
+    private var lastScreensaverStartedAt = 0.0
     private var faceOperationActive = false
     private var pendingFaceUnlock: DispatchWorkItem?
     private var lockStateTimer: Timer?
@@ -34,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private let wakeUnlockRetryDelay: TimeInterval = 0.5
     private let wakeUnlockMaxRetries = 8
+    private let conservativeWakeSleepThreshold: TimeInterval = 60
+    private let conservativeWakeUnlockDelay: TimeInterval = 1.5
     private let logger = Logger(subsystem: "com.tonydong.macOSHello", category: "face-unlock")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -161,7 +165,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.displaySleep = false
             self?.lastWakeAt = Date().timeIntervalSince1970
-            self?.scheduleFaceUnlock()
+            self?.logger.info("屏幕已唤醒，安排人脸识别")
+            self?.scheduleFaceUnlock(after: 0.75)
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.displaySleep = true
@@ -171,24 +176,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.systemSleep = false
             self?.displaySleep = false
             self?.lastWakeAt = Date().timeIntervalSince1970
-            self?.scheduleFaceUnlock(after: 1.0)
+            self?.logger.info("系统已唤醒，安排人脸识别")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.scheduleFaceUnlock(after: 1.0)
+            }
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.systemSleep = true
+            self?.lastSystemSleepStartedAt = Date().timeIntervalSince1970
             self?.cancelUnlockTimers()
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-            self?.scheduleFaceUnlock(after: 0.8)
+            self?.startContinuousFaceUnlock()
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.inScreensaver = false
+            self?.lastSystemSleepStartedAt = 0
+            self?.lastScreensaverStartedAt = 0
             self?.cancelUnlockTimers()
+            self?.stopContinuousFaceUnlock()
         })
         systemObservers.append(center.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstart"), object: nil, queue: .main) { [weak self] _ in
             self?.inScreensaver = true
+            self?.lastScreensaverStartedAt = Date().timeIntervalSince1970
             self?.scheduleFaceUnlock(after: 0.5)
         })
         systemObservers.append(center.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstop"), object: nil, queue: .main) { [weak self] _ in
             self?.inScreensaver = false
+            self?.lastScreensaverStartedAt = 0
         })
     }
 
@@ -241,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 case .failure(let reason, let similarity, _):
                     let detail = similarity.map { String(format: "，最高相似度 %.3f", $0) } ?? ""
                     self.logger.error("人脸识别失败：\(reason.message, privacy: .public)\(detail, privacy: .public)")
-                    if requireLockedScreen, self.continuousFaceUnlockEnabled {
+                    if requireLockedScreen, self.isScreenLocked() {
                         self.updateStatus("持续识别中")
                         self.scheduleContinuousFaceUnlock(after: 1)
                     } else {
@@ -283,6 +298,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     self.cancelUnlockTimers()
                     self.stopContinuousFaceUnlock()
                 }
+            }
+            if locked, self.autoUnlockEnabled, !self.systemSleep, !self.displaySleep,
+               !self.faceOperationActive, self.pendingFaceUnlock == nil {
+                self.scheduleFaceUnlock(after: 0.5)
             }
         }
     }
@@ -328,7 +347,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         }
 
         wakeUnlockTimer?.invalidate()
-        wakeUnlockTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+        let unlockDelay = conservativeWakeUnlockNeeded() ? conservativeWakeUnlockDelay : (recentlyWoke() ? 0.75 : 0.5)
+        wakeUnlockTimer = Timer.scheduledTimer(withTimeInterval: unlockDelay, repeats: false) { [weak self] _ in
             guard let self, self.isScreenLocked() else { return }
             guard let password = self.fetchPassword(warn: false) else {
                 self.logger.error("自动解锁停止：尚未设置登录密码")
@@ -391,6 +411,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             return locked == 1
         }
         return false
+    }
+
+    private func recentlyWoke() -> Bool {
+        Date().timeIntervalSince1970 - lastWakeAt < 5
+    }
+
+    private func conservativeWakeUnlockNeeded() -> Bool {
+        guard recentlyWoke() else { return false }
+        let now = Date().timeIntervalSince1970
+        let sleepReference = max(lastSystemSleepStartedAt, lastScreensaverStartedAt)
+        guard sleepReference > 0 else { return false }
+        return now - sleepReference >= conservativeWakeSleepThreshold
     }
 
     @objc private func enrollFace() {
