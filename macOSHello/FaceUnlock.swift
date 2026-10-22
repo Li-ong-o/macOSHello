@@ -313,6 +313,23 @@ final class FaceUnlockService {
         enrollmentStore = FaceEnrollmentStore()
     }
 
+    func stopCurrentOperation() {
+        serviceQueue.async { [weak self] in
+            guard let self, self.camera != nil else { return }
+            self.operationTimedOut = true
+            self.stopCamera()
+            if let continuation = self.continuation {
+                self.continuation = nil
+                self.previewFrameHandler = nil
+                continuation.resume(returning: .failure(reason: .timeout, similarity: self.bestSimilarity, profile: self.matchedProfile))
+            } else if let continuation = self.enrollmentContinuation {
+                self.enrollmentContinuation = nil
+                self.previewFrameHandler = nil
+                continuation.resume(returning: self.enrollmentSamples)
+            }
+        }
+    }
+
     private func requestCameraPermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:

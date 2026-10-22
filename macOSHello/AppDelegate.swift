@@ -165,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.displaySleep = true
+            self?.stopCameraWhenDisplayIsOff()
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.systemSleep = false
@@ -200,6 +201,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         pendingFaceUnlock?.cancel()
         pendingFaceUnlock = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func stopCameraWhenDisplayIsOff() {
+        guard displaySleep else { return }
+        cancelUnlockTimers()
+        stopContinuousFaceUnlock()
+        faceUnlock.stopCurrentOperation()
+        logger.info("屏幕已关闭，停止人脸识别")
     }
 
     private func unlockWithFace(requireLockedScreen: Bool, showResult: Bool) {
@@ -299,6 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func runContinuousFaceUnlockOnce() {
         guard continuousFaceUnlockEnabled, autoUnlockEnabled, isScreenLocked() else { return }
+        guard !systemSleep, !displaySleep else { return }
         unlockWithFace(requireLockedScreen: true, showResult: false)
     }
 
