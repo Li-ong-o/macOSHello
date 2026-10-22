@@ -418,7 +418,9 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
     private let faceUnlock: FaceUnlockService
     private let imageView = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "正在启动摄像头...")
+    private let retryButton = NSButton(title: "重新识别", target: nil, action: nil)
     private var verificationTask: Task<Void, Never>?
+    private var isVerifying = false
     var didFinish: (() -> Void)?
 
     init(faceUnlock: FaceUnlockService) {
@@ -435,6 +437,8 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: window)
         window.delegate = self
         setupContentView()
+        retryButton.target = self
+        retryButton.action = #selector(retryVerification)
     }
 
     required init?(coder: NSCoder) {
@@ -455,6 +459,12 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         statusLabel.font = .systemFont(ofSize: 14, weight: .medium)
         statusLabel.lineBreakMode = .byTruncatingTail
         contentView.addSubview(statusLabel)
+
+        retryButton.bezelStyle = .rounded
+        retryButton.controlSize = .regular
+        retryButton.isEnabled = false
+        retryButton.frame = NSRect(x: 374, y: 6, width: 90, height: 32)
+        contentView.addSubview(retryButton)
     }
 
     override func showWindow(_ sender: Any?) {
@@ -463,6 +473,9 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func startVerification() {
+        guard !isVerifying else { return }
+        isVerifying = true
+        retryButton.isEnabled = false
         statusLabel.stringValue = "正在识别，请看向摄像头并缓慢转头"
         verificationTask = Task { [weak self] in
             guard let self else { return }
@@ -482,12 +495,15 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
             }
             await MainActor.run { [weak self] in
                 guard let self else { return }
+                self.isVerifying = false
+                self.verificationTask = nil
                 self.updateResult(result)
             }
         }
     }
 
     private func updateResult(_ result: FaceVerificationResult) {
+        retryButton.isEnabled = true
         switch result {
         case .success(let similarity, let profile):
             statusLabel.stringValue = String(format: "识别成功：%@，相似度 %.3f", profile.name, similarity)
@@ -503,6 +519,10 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
             }
         }
         didFinish?()
+    }
+
+    @objc private func retryVerification() {
+        startVerification()
     }
 
     private func annotatedImage(from image: CGImage, normalizedFaceBox: CGRect?) -> NSImage {
@@ -529,6 +549,8 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         verificationTask?.cancel()
+        isVerifying = false
+        verificationTask = nil
         didFinish?()
     }
 }
