@@ -100,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     func menuWillOpen(_ menu: NSMenu) {
         if menu == faceProfilesMenu { rebuildFaceProfilesMenu() }
         if menu == cameraMenu { rebuildCameraMenu() }
+        if menu == thresholdMenu { rebuildThresholdMenu() }
         refreshSettingMenuStates()
     }
 
@@ -209,6 +210,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         logger.info("开始人脸识别，要求锁屏：\(requireLockedScreen, privacy: .public)")
 
         Task { [weak self] in
+            if let self {
+                self.logger.info("开始人脸识别，相似度阈值 \(self.format(self.faceUnlock.threshold), privacy: .public)，活体检测 \(self.faceUnlock.livenessEnabled ? "开启" : "关闭", privacy: .public)")
+            }
             let result = await self?.faceUnlock.verify(timeout: 8) ?? .failure(reason: .cameraUnavailable, similarity: nil, profile: nil)
             await MainActor.run { [weak self] in
                 guard let self else { return }

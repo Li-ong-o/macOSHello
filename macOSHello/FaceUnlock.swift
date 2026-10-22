@@ -469,14 +469,15 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         output.lockFocus()
         NSImage(cgImage: image, size: size).draw(in: NSRect(origin: .zero, size: size))
         if let normalizedFaceBox {
-            let flippedBox = CGRect(
+            // Vision uses Core Graphics coordinates with the origin at the lower-left.
+            let faceBox = CGRect(
                 x: normalizedFaceBox.minX * size.width,
-                y: (1 - normalizedFaceBox.maxY) * size.height,
+                y: normalizedFaceBox.minY * size.height,
                 width: normalizedFaceBox.width * size.width,
                 height: normalizedFaceBox.height * size.height
             )
             NSColor.systemGreen.setStroke()
-            let path = NSBezierPath(roundedRect: flippedBox, xRadius: 10, yRadius: 10)
+            let path = NSBezierPath(roundedRect: faceBox, xRadius: 10, yRadius: 10)
             path.lineWidth = max(2, CGFloat(image.width) * 0.005)
             path.stroke()
         }
