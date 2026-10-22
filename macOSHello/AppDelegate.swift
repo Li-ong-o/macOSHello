@@ -453,13 +453,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @objc private func lockScreenNow() {
         cancelUnlockTimers()
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/System/Library/CoreServices/RemoteManagement/AppleVNCServer.bundle/Contents/Support/LockScreen.app/Contents/MacOS/LockScreen")
-        do {
-            try task.run()
-        } catch {
-            logger.error("锁屏命令执行失败：\(error.localizedDescription, privacy: .public)")
-            showInfo("锁屏失败", error.localizedDescription)
+        let result = SACLockScreenImmediate()
+        if result == noErr {
+            logger.info("已请求锁定屏幕")
+        } else {
+            logger.error("锁屏请求失败：\(result, privacy: .public)")
+            showInfo("锁屏失败", "系统返回错误 \(result)。")
         }
     }
 

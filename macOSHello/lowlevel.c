@@ -1,6 +1,24 @@
 #include "lowlevel.h"
+#include <dlfcn.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
 #include <IOKit/IOKitLib.h>
+
+OSStatus SACLockScreenImmediate(void)
+{
+    void *handle = dlopen("/System/Library/PrivateFrameworks/LoginUICore.framework/LoginUICore", RTLD_LAZY);
+    if (!handle) {
+        return -1;
+    }
+
+    typedef OSStatus (*SACScreenLockFunction)(void);
+    SACScreenLockFunction lock = (SACScreenLockFunction)dlsym(handle, "SACScreenLock");
+    if (!lock) {
+        dlclose(handle);
+        return -2;
+    }
+
+    return lock();
+}
 
 void wakeDisplay(void)
 {
