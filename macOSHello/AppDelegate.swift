@@ -17,7 +17,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var displaySleep = false
     private var systemSleep = false
     private var inScreensaver = false
-    private var manualLock = false
     private var unlockedAt = 0.0
     private var lastWakeAt = 0.0
     private var faceOperationActive = false
@@ -112,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private func registerSystemNotifications() {
         let workspace = NSWorkspace.shared.notificationCenter
         let center = NotificationCenter.default
+        let distributed = DistributedNotificationCenter.default()
 
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.displaySleep = false
@@ -131,17 +131,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.systemSleep = true
             self?.cancelUnlockTimers()
         })
-        systemObservers.append(NotificationCenter.default.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstart"), object: nil, queue: .main) { [weak self] _ in
+        systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.scheduleFaceUnlock(after: 0.8)
+        })
+        systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.cancelUnlockTimers()
+        })
+        systemObservers.append(center.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstart"), object: nil, queue: .main) { [weak self] _ in
             self?.inScreensaver = true
             self?.scheduleFaceUnlock(after: 0.5)
         })
-        systemObservers.append(NotificationCenter.default.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstop"), object: nil, queue: .main) { [weak self] _ in
+        systemObservers.append(center.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstop"), object: nil, queue: .main) { [weak self] _ in
             self?.inScreensaver = false
         })
     }
 
     private func scheduleFaceUnlock(after delay: TimeInterval = 0.2) {
-        guard autoUnlockEnabled, !systemSleep, !displaySleep, !manualLock else { return }
+        guard autoUnlockEnabled, !systemSleep, !displaySleep else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.unlockWithFace(requireLockedScreen: true)
         }
@@ -170,7 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func tryUnlockScreen(retryCount: Int = 0) {
-        guard !manualLock, !systemSleep, !displaySleep else { return }
+        guard !systemSleep, !displaySleep else { return }
         guard isScreenLocked() else {
             if retryCount < wakeUnlockMaxRetries {
                 scheduleWakeUnlock(after: wakeUnlockRetryDelay, retryCount: retryCount + 1)
@@ -357,11 +363,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     @objc private func lockScreenNow() {
-        manualLock = true
         cancelUnlockTimers()
         let task = Process()
-        task.launchPath = "/usr/bin/pmset"
-        task.arguments = ["displaysleepnow"]
+        task.executableURL = URL(fileURLWithPath: "/System/Library/CoreServices/RemoteManagement/AppleVNCServer.bundle/Contents/Support/LockScreen.app/Contents/MacOS/LockScreen")
         try? task.run()
     }
 
