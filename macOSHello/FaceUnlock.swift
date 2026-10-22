@@ -44,76 +44,6 @@ struct FaceFeaturePrint {
     let embedding: [Float]
 }
 
-struct PostureObservation {
-    let shoulderTilt: Float
-    let headForward: Float
-}
-
-enum PostureIssue {
-    case shoulderTilt
-    case headForward
-    case both
-
-    var message: String {
-        switch self {
-        case .shoulderTilt: return "肩膀歪斜"
-        case .headForward: return "头部前伸"
-        case .both: return "肩膀歪斜，头部前伸"
-        }
-    }
-}
-
-struct PostureDetector {
-    static let shoulderTiltThreshold: Float = 0.35
-    static let headForwardThreshold: Float = 0.42
-
-    func detect(pixelBuffer: CVPixelBuffer, completion: @escaping (PostureObservation?) -> Void) {
-        DispatchQueue.global(qos: .utility).async {
-            let request = VNDetectHumanBodyPoseRequest()
-            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
-            do {
-                try handler.perform([request])
-                completion((request.results ?? []).first.map(Self.measure))
-            } catch {
-                completion(nil)
-            }
-        }
-    }
-
-    private static func measure(_ observation: VNHumanBodyPoseObservation) -> PostureObservation {
-        func point(_ name: VNHumanBodyPoseObservation.JointName) -> CGPoint? {
-            try? observation.recognizedPoint(name).location
-        }
-
-        guard let leftShoulder = point(.leftShoulder),
-              let rightShoulder = point(.rightShoulder) else {
-            return PostureObservation(shoulderTilt: 0, headForward: 0)
-        }
-
-        let shoulderWidth = abs(leftShoulder.x - rightShoulder.x)
-        let shoulderTilt = shoulderWidth > 0.01
-            ? Float(abs(leftShoulder.y - rightShoulder.y) / shoulderWidth)
-            : 0
-        var headForward: Float = 0
-        if let nose = point(.nose) {
-            let shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2
-            let normalizedOffset = (nose.x - shoulderMidX) / max(shoulderWidth, 0.01)
-            headForward = Float(max(0, normalizedOffset))
-        }
-        return PostureObservation(shoulderTilt: shoulderTilt, headForward: headForward)
-    }
-
-    static func issue(for observation: PostureObservation?) -> PostureIssue? {
-        guard let observation else { return nil }
-        let badTilt = observation.shoulderTilt > shoulderTiltThreshold
-        let badForward = observation.headForward > headForwardThreshold
-        if badTilt && badForward { return .both }
-        if badTilt { return .shoulderTilt }
-        if badForward { return .headForward }
-        return nil
-    }
-}
-
 final class FaceFeaturePrintGenerator {
     private let queue = DispatchQueue(label: "com.tonydong.macOSHello.face-engine")
 
@@ -283,16 +213,6 @@ final class FaceUnlockService {
     var livenessEnabled: Bool {
         if prefs.object(forKey: "faceLivenessEnabled") == nil { return true }
         return prefs.bool(forKey: "faceLivenessEnabled")
-    }
-
-    var postureDetectionEnabled: Bool {
-        if prefs.object(forKey: "postureDetectionEnabled") == nil { return false }
-        return prefs.bool(forKey: "postureDetectionEnabled")
-    }
-
-    var postureReminderMode: String {
-        if prefs.object(forKey: "postureReminderMode") == nil { return "window" }
-        return prefs.string(forKey: "postureReminderMode") ?? "window"
     }
 
     func loadEnrollment() {
@@ -494,59 +414,6 @@ final class FaceUnlockService {
     }
 }
 
-final class PostureMonitor {
-    private let camera: FaceCamera
-    private let detector = PostureDetector()
-    private let queue = DispatchQueue(label: "com.tonydong.macOSHello.posture-monitor")
-    private var lastAnalysisAt = Date.distantPast
-    private var latestPixelBuffer: CVPixelBuffer?
-    private(set) var isRunning = false
-    var onObservation: ((PostureObservation?) -> Void)?
-
-    init(cameraID: String?) {
-        self.camera = FaceCamera(cameraID: cameraID)
-    }
-
-    func start() {
-        queue.async { [weak self] in
-            guard let self, !self.isRunning else { return }
-            do {
-                try self.camera.start { [weak self] pixelBuffer in
-                    self?.queue.async { [weak self] in
-                        self?.handleFrame(pixelBuffer)
-                    }
-                }
-                self.isRunning = true
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    self?.onObservation?(nil)
-                }
-            }
-        }
-    }
-
-    func stop() {
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.camera.stop()
-            self.isRunning = false
-        }
-    }
-
-    private func handleFrame(_ pixelBuffer: CVPixelBuffer) {
-        latestPixelBuffer = pixelBuffer
-        guard Date().timeIntervalSince(lastAnalysisAt) >= 0.5 else { return }
-        lastAnalysisAt = Date()
-        guard let buffer = latestPixelBuffer else { return }
-        latestPixelBuffer = nil
-        detector.detect(pixelBuffer: buffer) { observation in
-            DispatchQueue.main.async { [weak self] in
-                self?.onObservation?(observation)
-            }
-        }
-    }
-}
-
 final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
     private let faceUnlock: FaceUnlockService
     private let imageView = NSImageView()
@@ -662,100 +529,6 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         verificationTask?.cancel()
-        didFinish?()
-    }
-}
-
-final class PosturePreviewWindowController: NSWindowController, NSWindowDelegate {
-    private let camera: FaceCamera
-    private let postureDetector = PostureDetector()
-    private let imageView = NSImageView()
-    private let statusLabel = NSTextField(labelWithString: "正在启动摄像头...")
-    private let previewContext = CIContext()
-    var didFinish: (() -> Void)?
-
-    init(cameraID: String?) {
-        self.camera = FaceCamera(cameraID: cameraID)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 370),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "立即坐姿检测"
-        window.isReleasedWhenClosed = false
-        window.center()
-        super.init(window: window)
-        window.delegate = self
-        setupContentView()
-    }
-
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    private func setupContentView() {
-        guard let contentView = window?.contentView else { return }
-        contentView.wantsLayer = true
-        contentView.layer?.backgroundColor = NSColor.black.cgColor
-        imageView.frame = NSRect(x: 0, y: 45, width: 480, height: 325)
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        contentView.addSubview(imageView)
-        statusLabel.frame = NSRect(x: 16, y: 10, width: 448, height: 24)
-        statusLabel.textColor = .white
-        statusLabel.font = .systemFont(ofSize: 14, weight: .medium)
-        statusLabel.lineBreakMode = .byTruncatingTail
-        contentView.addSubview(statusLabel)
-    }
-
-    override func showWindow(_ sender: Any?) {
-        super.showWindow(sender)
-        do {
-            try camera.start { [weak self] pixelBuffer in
-                guard let self else { return }
-                self.handleFrame(pixelBuffer)
-            }
-        } catch {
-            statusLabel.stringValue = "摄像头启动失败。"
-            statusLabel.textColor = .systemRed
-        }
-    }
-
-    private func handleFrame(_ pixelBuffer: CVPixelBuffer) {
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        if let cgImage = previewContext.createCGImage(
-            ciImage,
-            from: CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
-        ) {
-            let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-            DispatchQueue.main.async { [weak self] in
-                self?.imageView.image = image
-            }
-        }
-
-        postureDetector.detect(pixelBuffer: pixelBuffer) { observation in
-            let issue = PostureDetector.issue(for: observation)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if let observation {
-                    let status = issue.map { "坐姿异常：\($0.message)" } ?? "坐姿正常"
-                    self.statusLabel.stringValue = String(
-                        format: "%@，肩膀歪斜 %.2f，头部前伸 %.2f",
-                        status,
-                        observation.shoulderTilt,
-                        observation.headForward
-                    )
-                    self.statusLabel.textColor = issue == nil ? NSColor.systemGreen : NSColor.systemOrange
-                } else {
-                    self.statusLabel.stringValue = "未检测到上半身关键点"
-                    self.statusLabel.textColor = NSColor.systemRed
-                }
-            }
-        }
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        camera.stop()
         didFinish?()
     }
 }

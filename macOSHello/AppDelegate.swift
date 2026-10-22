@@ -14,7 +14,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let faceProfilesMenu = NSMenu()
     private let thresholdMenu = NSMenu()
     private let cameraMenu = NSMenu()
-    private let postureMenu = NSMenu()
 
     private var displaySleep = false
     private var systemSleep = false
@@ -32,9 +31,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var continuousFaceUnlockEnabled = false
     private var accessibilityRetryTimer: Timer?
     private var previewWindowController: FacePreviewWindowController?
-    private var posturePreviewWindowController: PosturePreviewWindowController?
-    private var postureMonitor: PostureMonitor?
-    private var lastPostureReminderAt = Date.distantPast
 
     private let wakeUnlockRetryDelay: TimeInterval = 0.5
     private let wakeUnlockMaxRetries = 8
@@ -46,14 +42,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         registerSystemNotifications()
         startLockStatePolling()
         checkAccessibilityPermission()
-        restartPostureMonitorIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         accessibilityRetryTimer?.invalidate()
         systemObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         systemObservers.forEach(NotificationCenter.default.removeObserver)
-        postureMonitor?.stop()
     }
 
     private func configureStatusItem() {
@@ -71,7 +65,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
         menu.addItem(withTitle: "注册人脸...", action: #selector(enrollFace), keyEquivalent: "")
         menu.addItem(withTitle: "立即人脸识别测试", action: #selector(verifyFaceNow), keyEquivalent: "")
-        menu.addItem(withTitle: "立即坐姿检测", action: #selector(showPosturePreview), keyEquivalent: "")
         menu.addItem(.separator())
 
         let profilesItem = menu.addItem(withTitle: "已注册人脸", action: nil, keyEquivalent: "")
@@ -89,9 +82,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
         let livenessItem = menu.addItem(withTitle: "活体检测", action: #selector(toggleFaceLiveness), keyEquivalent: "")
         livenessItem.state = faceUnlock.livenessEnabled ? .on : .off
-        let postureItem = menu.addItem(withTitle: "坐姿检测", action: nil, keyEquivalent: "")
-        postureItem.submenu = postureMenu
-        rebuildPostureMenu()
         let autoItem = menu.addItem(withTitle: "自动人脸解锁", action: #selector(toggleAutoUnlock), keyEquivalent: "")
         autoItem.state = autoUnlockEnabled ? .on : .off
 
@@ -111,13 +101,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         if menu == faceProfilesMenu { rebuildFaceProfilesMenu() }
         if menu == cameraMenu { rebuildCameraMenu() }
         if menu == thresholdMenu { rebuildThresholdMenu() }
-        if menu == postureMenu { rebuildPostureMenu() }
         refreshSettingMenuStates()
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(enrollFace), #selector(verifyFaceNow), #selector(showPosturePreview), #selector(setPassword):
+        case #selector(enrollFace), #selector(verifyFaceNow), #selector(setPassword):
             return !faceOperationActive
         default:
             return true
@@ -172,7 +161,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.displaySleep = false
             self?.lastWakeAt = Date().timeIntervalSince1970
-            self?.restartPostureMonitorIfNeeded()
             self?.scheduleFaceUnlock()
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -183,21 +171,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.systemSleep = false
             self?.displaySleep = false
             self?.lastWakeAt = Date().timeIntervalSince1970
-            self?.restartPostureMonitorIfNeeded()
             self?.scheduleFaceUnlock(after: 1.0)
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.systemSleep = true
-            self?.postureMonitor?.stop()
             self?.cancelUnlockTimers()
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-            self?.postureMonitor?.stop()
             self?.scheduleFaceUnlock(after: 0.8)
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
             self?.cancelUnlockTimers()
-            self?.restartPostureMonitorIfNeeded()
         })
         systemObservers.append(center.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstart"), object: nil, queue: .main) { [weak self] _ in
             self?.inScreensaver = true
@@ -224,7 +208,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         cancelUnlockTimers()
         stopContinuousFaceUnlock()
         faceUnlock.stopCurrentOperation()
-        postureMonitor?.stop()
         logger.info("屏幕已关闭，停止人脸识别")
     }
 
@@ -232,7 +215,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         guard !faceOperationActive else { return }
         if requireLockedScreen { guard isScreenLocked() else { return } }
         faceOperationActive = true
-        postureMonitor?.stop()
         updateStatus("识别中")
         logger.info("开始人脸识别，要求锁屏：\(requireLockedScreen, privacy: .public)")
 
@@ -244,7 +226,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.faceOperationActive = false
-                self.restartPostureMonitorIfNeeded()
                 switch result {
                 case .success(let similarity, let profile):
                     self.logger.info("人脸匹配成功：\(profile.name, privacy: .public)，相似度 \(self.format(similarity), privacy: .public)")
@@ -295,14 +276,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 self.logger.info("检测到锁屏状态变化：\(locked ? "已锁定" : "已解锁", privacy: .public)")
                 self.lastKnownLockedState = locked
                 if locked {
-                    self.postureMonitor?.stop()
                     self.startContinuousFaceUnlock()
                 } else {
                     self.pendingFaceUnlock?.cancel()
                     self.pendingFaceUnlock = nil
                     self.cancelUnlockTimers()
                     self.stopContinuousFaceUnlock()
-                    self.restartPostureMonitorIfNeeded()
                 }
             }
         }
@@ -315,46 +294,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func stopContinuousFaceUnlock() {
         continuousFaceUnlockEnabled = false
-    }
-
-    private func restartPostureMonitorIfNeeded() {
-        guard faceUnlock.postureDetectionEnabled,
-              !systemSleep,
-              !displaySleep,
-              !isScreenLocked(),
-              !faceOperationActive,
-              posturePreviewWindowController == nil else {
-            postureMonitor?.stop()
-            return
-        }
-
-        if postureMonitor == nil {
-            let monitor = PostureMonitor(cameraID: faceUnlock.cameraID)
-            monitor.onObservation = { [weak self] observation in
-                self?.handlePostureObservation(observation)
-            }
-            postureMonitor = monitor
-        }
-        postureMonitor?.start()
-    }
-
-    private func handlePostureObservation(_ observation: PostureObservation?) {
-        guard faceUnlock.postureDetectionEnabled else { return }
-        guard let issue = PostureDetector.issue(for: observation) else { return }
-        guard Date().timeIntervalSince(lastPostureReminderAt) >= 10 else { return }
-        lastPostureReminderAt = Date()
-
-        switch faceUnlock.postureReminderMode {
-        case "status":
-            updateStatus("坐姿提醒：\(issue.message)")
-        default:
-            let alert = NSAlert()
-            alert.messageText = "坐姿提醒"
-            alert.informativeText = "检测到\(issue.message)，请注意调整坐姿。"
-            alert.addButton(withTitle: "知道了")
-            NSApp.activate(ignoringOtherApps: true)
-            alert.runModal()
-        }
     }
 
     private func scheduleContinuousFaceUnlock(after delay: TimeInterval) {
@@ -469,20 +408,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         guard !name.isEmpty else { return }
 
         faceOperationActive = true
-        postureMonitor?.stop()
         Task { [weak self] in
             do {
                 let profile = try await self?.faceUnlock.enroll(name: name, timeout: 30)
                 await MainActor.run { [weak self] in
                     self?.faceOperationActive = false
-                    self?.restartPostureMonitorIfNeeded()
                     self?.showInfo("注册成功", "已保存 \(profile?.name ?? name) 的人脸数据。")
                     self?.rebuildFaceProfilesMenu()
                 }
             } catch {
                 await MainActor.run { [weak self] in
                     self?.faceOperationActive = false
-                    self?.restartPostureMonitorIfNeeded()
                     self?.showInfo("注册失败", error.localizedDescription)
                 }
             }
@@ -490,13 +426,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     @objc private func verifyFaceNow() {
-        postureMonitor?.stop()
         let controller = FacePreviewWindowController(faceUnlock: faceUnlock)
         previewWindowController = controller
         controller.didFinish = { [weak self, weak controller] in
             guard let self, let controller, self.previewWindowController === controller else { return }
             self.previewWindowController = nil
-            self.restartPostureMonitorIfNeeded()
         }
         controller.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -550,38 +484,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         statusItem.menu?.items.forEach { item in
             if item.action == #selector(toggleAutoUnlock) { item.state = enabled ? .on : .off }
         }
-    }
-
-    @objc private func togglePostureDetection() {
-        let enabled = !faceUnlock.postureDetectionEnabled
-        prefs.set(enabled, forKey: "postureDetectionEnabled")
-        rebuildPostureMenu()
-        restartPostureMonitorIfNeeded()
-    }
-
-    @objc private func setPostureReminderMode(_ menuItem: NSMenuItem) {
-        let mode = menuItem.tag == 0 ? "window" : "status"
-        prefs.set(mode, forKey: "postureReminderMode")
-        rebuildPostureMenu()
-    }
-
-    @objc private func showPosturePreview() {
-        guard posturePreviewWindowController == nil else {
-            posturePreviewWindowController?.showWindow(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        postureMonitor?.stop()
-        let controller = PosturePreviewWindowController(cameraID: faceUnlock.cameraID)
-        posturePreviewWindowController = controller
-        controller.didFinish = { [weak self, weak controller] in
-            guard let self, let controller, self.posturePreviewWindowController === controller else { return }
-            self.posturePreviewWindowController = nil
-            self.restartPostureMonitorIfNeeded()
-        }
-        controller.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func setPassword() {
@@ -673,29 +575,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             item.representedObject = camera.uniqueID
             item.state = faceUnlock.cameraID == camera.uniqueID ? .on : .off
         }
-    }
-
-    private func rebuildPostureMenu() {
-        postureMenu.removeAllItems()
-
-        let toggleItem = postureMenu.addItem(
-            withTitle: faceUnlock.postureDetectionEnabled ? "关闭坐姿检测" : "开启坐姿检测",
-            action: #selector(togglePostureDetection),
-            keyEquivalent: ""
-        )
-        toggleItem.state = faceUnlock.postureDetectionEnabled ? .on : .off
-
-        postureMenu.addItem(.separator())
-        let titleItem = postureMenu.addItem(withTitle: "提醒方式", action: nil, keyEquivalent: "")
-        titleItem.isEnabled = false
-
-        let windowItem = postureMenu.addItem(withTitle: "提醒窗口", action: #selector(setPostureReminderMode), keyEquivalent: "")
-        windowItem.tag = 0
-        windowItem.state = faceUnlock.postureReminderMode == "window" ? .on : .off
-
-        let statusItem = postureMenu.addItem(withTitle: "状态栏提示", action: #selector(setPostureReminderMode), keyEquivalent: "")
-        statusItem.tag = 1
-        statusItem.state = faceUnlock.postureReminderMode == "status" ? .on : .off
     }
 
     private func showInfo(_ title: String, _ message: String) {
