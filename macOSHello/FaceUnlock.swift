@@ -189,6 +189,8 @@ final class FaceUnlockService {
     private var matchedProfile: FaceProfile?
     private var continuation: CheckedContinuation<FaceVerificationResult, Never>?
     private var enrollmentContinuation: CheckedContinuation<[[Float]], Never>?
+    private var previewFrameHandler: ((CGImage) -> Void)?
+    private let previewContext = CIContext()
     private let serviceQueue = DispatchQueue(label: "com.tonydong.macOSHello.face-service")
     private var operationDeadline = Date.distantPast
     private var operationTimedOut = false
@@ -258,7 +260,7 @@ final class FaceUnlockService {
         return profile
     }
 
-    func verify(timeout: TimeInterval = 8) async -> FaceVerificationResult {
+    func verify(timeout: TimeInterval = 8, onFrame: ((CGImage) -> Void)? = nil) async -> FaceVerificationResult {
         loadEnrollment()
         guard !enrollmentStore.profiles.isEmpty else {
             return .failure(reason: .noEnrollment, similarity: nil, profile: nil)
@@ -269,6 +271,7 @@ final class FaceUnlockService {
         verifyState.reset()
         bestSimilarity = -1
         matchedProfile = nil
+        previewFrameHandler = onFrame
 
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
@@ -309,9 +312,19 @@ final class FaceUnlockService {
         operationDeadline = Date().addingTimeInterval(timeout)
         operationTimedOut = false
         let camera = FaceCamera(cameraID: cameraID)
+        let previewHandler = previewFrameHandler
         do {
             try camera.start { [weak self] pixelBuffer in
                 guard let self else { return }
+                if let previewHandler {
+                    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+                    if let cgImage = self.previewContext.createCGImage(
+                        ciImage,
+                        from: CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
+                    ) {
+                        DispatchQueue.main.async { previewHandler(cgImage) }
+                    }
+                }
                 self.engine.detect(pixelBuffer: pixelBuffer) { face in
                     guard let face else { return }
                     self.serviceQueue.async { handler(face) }
@@ -350,14 +363,97 @@ final class FaceUnlockService {
 
     private func finish(_ result: FaceVerificationResult) {
         stopCamera()
+        previewFrameHandler = nil
         continuation?.resume(returning: result)
         continuation = nil
     }
 
     private func finishEnrollment() {
         stopCamera()
+        previewFrameHandler = nil
         enrollmentContinuation?.resume(returning: enrollmentSamples)
         enrollmentContinuation = nil
+    }
+}
+
+final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
+    private let faceUnlock: FaceUnlockService
+    private let imageView = NSImageView()
+    private let statusLabel = NSTextField(labelWithString: "正在启动摄像头...")
+    private var verificationTask: Task<Void, Never>?
+    var didFinish: (() -> Void)?
+
+    init(faceUnlock: FaceUnlockService) {
+        self.faceUnlock = faceUnlock
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 370),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "立即识别测试"
+        window.isReleasedWhenClosed = false
+        window.center()
+        super.init(window: window)
+        window.delegate = self
+        setupContentView()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    private func setupContentView() {
+        guard let contentView = window?.contentView else { return }
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor.black.cgColor
+
+        imageView.frame = NSRect(x: 0, y: 45, width: 480, height: 325)
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        contentView.addSubview(imageView)
+
+        statusLabel.frame = NSRect(x: 16, y: 10, width: 448, height: 24)
+        statusLabel.textColor = .white
+        statusLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        statusLabel.lineBreakMode = .byTruncatingTail
+        contentView.addSubview(statusLabel)
+    }
+
+    override func showWindow(_ sender: Any?) {
+        super.showWindow(sender)
+        startVerification()
+    }
+
+    private func startVerification() {
+        statusLabel.stringValue = "正在识别，请看向摄像头并缓慢转头"
+        verificationTask = Task { [weak self] in
+            guard let self else { return }
+            let result = await self.faceUnlock.verify(timeout: 15) { [weak self] image in
+                self?.imageView.image = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.updateResult(result)
+            }
+        }
+    }
+
+    private func updateResult(_ result: FaceVerificationResult) {
+        switch result {
+        case .success(let similarity, let profile):
+            statusLabel.stringValue = String(format: "识别成功：%@，相似度 %.3f", profile.name, similarity)
+            statusLabel.textColor = NSColor.systemGreen
+        case .failure(let reason, let similarity, _):
+            let detail = similarity.map { String(format: "，最高相似度 %.3f", $0) } ?? ""
+            statusLabel.stringValue = reason.message + detail
+            statusLabel.textColor = NSColor.systemRed
+        }
+        didFinish?()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        verificationTask?.cancel()
+        didFinish?()
     }
 }
 

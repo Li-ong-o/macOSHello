@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var systemObservers: [NSObjectProtocol] = []
     private var continuousFaceUnlockEnabled = false
     private var accessibilityRetryTimer: Timer?
+    private var previewWindowController: FacePreviewWindowController?
 
     private let wakeUnlockRetryDelay: TimeInterval = 0.5
     private let wakeUnlockMaxRetries = 8
@@ -411,7 +412,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     @objc private func verifyFaceNow() {
-        unlockWithFace(requireLockedScreen: false, showResult: true)
+        let controller = FacePreviewWindowController(faceUnlock: faceUnlock)
+        previewWindowController = controller
+        controller.didFinish = { [weak self, weak controller] in
+            guard let self, let controller, self.previewWindowController === controller else { return }
+            self.previewWindowController = nil
+        }
+        controller.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func deleteAllFaces() {
