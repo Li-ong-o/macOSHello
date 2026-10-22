@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var postUnlockRetryTimer: Timer?
     private var systemObservers: [NSObjectProtocol] = []
     private var continuousFaceUnlockEnabled = false
+    private var accessibilityRetryTimer: Timer?
 
     private let wakeUnlockRetryDelay: TimeInterval = 0.5
     private let wakeUnlockMaxRetries = 8
@@ -43,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        accessibilityRetryTimer?.invalidate()
         systemObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         systemObservers.forEach(NotificationCenter.default.removeObserver)
     }
@@ -517,10 +519,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func checkAccessibilityPermission() {
-        let options: CFDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        guard !AXIsProcessTrustedWithOptions(options) else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            self?.showInfo("需要辅助功能权限", "请在系统设置的隐私与安全性中允许 macOSHello 控制键盘。")
+        let options: CFDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
+        let trusted = AXIsProcessTrustedWithOptions(options)
+        logger.info("辅助功能初始状态：\(trusted)")
+        guard !trusted else { return }
+
+        accessibilityRetryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            let stillUntrusted = !AXIsProcessTrustedWithOptions(options)
+            self.logger.error("辅助功能状态仍为未授权：\(stillUntrusted)")
+            if stillUntrusted {
+                self.updateStatus("缺少辅助功能权限")
+            }
         }
     }
 
