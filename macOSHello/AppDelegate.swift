@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var continuousFaceUnlockEnabled = false
     private var continuousFaceUnlockUntil = Date.distantPast
     private var suppressFaceUnlockUntil = Date.distantPast
+    private var continuousFaceUnlockAttemptCount = 0
     private var accessibilityRetryTimer: Timer?
     private var previewWindowController: FacePreviewWindowController?
 
@@ -41,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let conservativeWakeSleepThreshold: TimeInterval = 60
     private let conservativeWakeUnlockDelay: TimeInterval = 1.5
     private let faceUnlockActiveWindow: TimeInterval = 30
+    private let faceUnlockMaxAttempts = 3
     private let logger = Logger(subsystem: "com.tonydong.macOSHello", category: "face-unlock")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -169,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.displaySleep = false
             self?.lastWakeAt = Date().timeIntervalSince1970
             self?.logger.info("屏幕已唤醒，安排人脸识别")
+            self?.resetFaceUnlockAttempts()
             self?.scheduleFaceUnlock(after: 0.75)
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -206,6 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.suppressFaceUnlockUntil = .distantPast
             self?.cancelUnlockTimers()
             self?.stopContinuousFaceUnlock()
+            self?.resetFaceUnlockAttempts()
         })
         systemObservers.append(center.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstart"), object: nil, queue: .main) { [weak self] _ in
             self?.inScreensaver = true
@@ -234,6 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         guard displaySleep else { return }
         cancelUnlockTimers()
         stopContinuousFaceUnlock()
+        resetFaceUnlockAttempts()
         faceUnlock.stopCurrentOperation()
         logger.info("屏幕已关闭，停止人脸识别")
     }
@@ -256,6 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 switch result {
                 case .success(let similarity, let profile):
                     self.logger.info("人脸匹配成功：\(profile.name, privacy: .public)，相似度 \(self.format(similarity), privacy: .public)")
+                    self.resetFaceUnlockAttempts()
                     self.suppressFaceUnlockUntil = Date().addingTimeInterval(12)
                     if requireLockedScreen {
                         self.updateStatus("识别成功，正在解锁")
@@ -268,10 +274,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     }
                 case .failure(let reason, let similarity, _):
                     let detail = similarity.map { String(format: "，最高相似度 %.3f", $0) } ?? ""
-                    self.logger.error("人脸识别失败：\(reason.message, privacy: .public)\(detail, privacy: .public)")
+                    self.continuousFaceUnlockAttemptCount += 1
+                    self.logger.error(
+                        "人脸识别失败（第 \(self.continuousFaceUnlockAttemptCount)/\(self.faceUnlockMaxAttempts) 次）：\(reason.message, privacy: .public)\(detail, privacy: .public)"
+                    )
                     if requireLockedScreen, self.isScreenLocked() {
-                        self.updateStatus("持续识别中")
-                        self.scheduleContinuousFaceUnlock(after: 1)
+                        if self.continuousFaceUnlockAttemptCount < self.faceUnlockMaxAttempts {
+                            self.updateStatus("识别失败，准备重试")
+                            self.scheduleContinuousFaceUnlock(after: 1)
+                        } else {
+                            self.stopContinuousFaceUnlock()
+                            self.faceUnlock.stopCurrentOperation()
+                            self.updateStatus("识别失败 3 次")
+                            self.logger.error("人脸识别连续失败 3 次，已停止摄像头")
+                        }
                     } else {
                         self.updateStatus("识别失败")
                     }
@@ -315,18 +331,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     self.pendingFaceUnlock = nil
                     self.cancelUnlockTimers()
                     self.stopContinuousFaceUnlock()
+                    self.resetFaceUnlockAttempts()
                 }
-            }
-            if locked, self.autoUnlockEnabled, !self.systemSleep, !self.displaySleep,
-               Date() >= self.suppressFaceUnlockUntil,
-               !self.faceOperationActive, self.pendingFaceUnlock == nil {
-                self.scheduleFaceUnlock(after: 0.5)
             }
         }
     }
 
     private func startContinuousFaceUnlock() {
         continuousFaceUnlockEnabled = true
+        resetFaceUnlockAttempts()
         continuousFaceUnlockUntil = Date().addingTimeInterval(faceUnlockActiveWindow)
         scheduleContinuousFaceUnlock(after: 0.5)
     }
@@ -334,6 +347,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private func stopContinuousFaceUnlock() {
         continuousFaceUnlockEnabled = false
         continuousFaceUnlockUntil = .distantPast
+    }
+
+    private func resetFaceUnlockAttempts() {
+        continuousFaceUnlockAttemptCount = 0
     }
 
     private func scheduleContinuousFaceUnlock(after delay: TimeInterval) {
@@ -348,6 +365,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func runContinuousFaceUnlockOnce() {
         guard Date() >= suppressFaceUnlockUntil else { return }
+        guard continuousFaceUnlockAttemptCount < faceUnlockMaxAttempts else {
+            stopContinuousFaceUnlock()
+            return
+        }
         guard continuousFaceUnlockEnabled, autoUnlockEnabled, isScreenLocked() else {
             if !isScreenLocked() { stopContinuousFaceUnlock() }
             return
