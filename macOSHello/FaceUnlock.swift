@@ -52,18 +52,25 @@ final class FaceFeaturePrintGenerator {
             let rectangles = VNDetectFaceRectanglesRequest()
             let landmarks = VNDetectFaceLandmarksRequest()
             let quality = VNDetectFaceCaptureQualityRequest()
-            let request = VNGenerateImageFeaturePrintRequest()
             let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
             do {
-                try handler.perform([rectangles, landmarks, quality, request])
+                try handler.perform([rectangles, landmarks, quality])
                 guard let face = (rectangles.results ?? []).max(by: { $0.boundingBox.width < $1.boundingBox.width }),
-                      let observation = request.results?.first else {
+                      let qualityObservation = quality.results?.first(where: { $0.boundingBox == face.boundingBox }) ?? quality.results?.first as VNFaceObservation?,
+                      let croppedBuffer = Self.cropFace(pixelBuffer: pixelBuffer, boundingBox: face.boundingBox) else {
+                    completion(nil)
+                    return
+                }
+                let request = VNGenerateImageFeaturePrintRequest()
+                let faceHandler = VNImageRequestHandler(cvPixelBuffer: croppedBuffer, options: [:])
+                try faceHandler.perform([request])
+                guard let observation = request.results?.first else {
                     completion(nil)
                     return
                 }
                 completion(FaceFeaturePrint(
                     boundingBox: face.boundingBox,
-                    quality: (quality.results ?? []).compactMap(\.faceCaptureQuality).max() ?? 0,
+                    quality: qualityObservation.faceCaptureQuality ?? 0,
                     yaw: face.yaw?.floatValue ?? 0,
                     pitch: face.pitch?.floatValue ?? 0,
                     embedding: observation.data.withUnsafeBytes { raw in
@@ -74,6 +81,53 @@ final class FaceFeaturePrintGenerator {
                 completion(nil)
             }
         }
+    }
+
+    private static func cropFace(pixelBuffer: CVPixelBuffer, boundingBox: CGRect) -> CVPixelBuffer? {
+        let imageWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+        let imageHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+        let frame = CGRect(
+            x: boundingBox.minX * imageWidth,
+            y: boundingBox.minY * imageHeight,
+            width: boundingBox.width * imageWidth,
+            height: boundingBox.height * imageHeight
+        ).integral
+        guard frame.width >= 32, frame.height >= 32 else { return nil }
+
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let source = CVPixelBufferGetBaseAddress(pixelBuffer),
+              let cropped = Self.createPixelBuffer(width: Int(frame.width), height: Int(frame.height), format: CVPixelBufferGetPixelFormatType(pixelBuffer)) else {
+            return nil
+        }
+
+        CVPixelBufferLockBaseAddress(cropped, [])
+        defer { CVPixelBufferUnlockBaseAddress(cropped, []) }
+        guard let destination = CVPixelBufferGetBaseAddress(cropped) else { return cropped }
+
+        let sourceBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let destinationBytesPerRow = CVPixelBufferGetBytesPerRow(cropped)
+        let bytesPerPixel = 4
+        let bytesToCopy = Int(frame.width) * bytesPerPixel
+        for row in 0..<Int(frame.height) {
+            // Vision boxes are normalized with the origin at the lower-left,
+            // while CVPixelBuffer rows start at the top of the image.
+            let sourceY = imageHeight - frame.maxY
+            let sourceRow = source.advanced(by: Int(sourceY) * sourceBytesPerRow + Int(frame.minX) * bytesPerPixel)
+            let destinationRow = destination.advanced(by: row * destinationBytesPerRow)
+            memmove(destinationRow, sourceRow, bytesToCopy)
+        }
+        return cropped
+    }
+
+    private static func createPixelBuffer(width: Int, height: Int, format: FourCharCode) -> CVPixelBuffer? {
+        var optionalBuffer: CVPixelBuffer?
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true
+        ]
+        let status = CVPixelBufferCreate(nil, width, height, format, attributes as CFDictionary, &optionalBuffer)
+        return status == kCVReturnSuccess ? optionalBuffer : nil
     }
 
     static func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
@@ -189,6 +243,7 @@ final class FaceUnlockService {
     private var enrollmentLiveness = FaceLivenessState()
     private var bestSimilarity: Float = -1
     private var matchedProfile: FaceProfile?
+    private var sawThresholdFrames = false
     private var lastDetectedFace: FaceFeaturePrint?
     private var continuation: CheckedContinuation<FaceVerificationResult, Never>?
     private var enrollmentContinuation: CheckedContinuation<[[Float]], Never>?
@@ -293,6 +348,7 @@ final class FaceUnlockService {
         verifyState.reset()
         bestSimilarity = -1
         matchedProfile = nil
+        sawThresholdFrames = false
         previewFrameHandler = onFrame
         let progressHandler = onProgress
 
@@ -307,6 +363,7 @@ final class FaceUnlockService {
                     self.matchedProfile = match.profile
                     let matched = match.similarity >= self.threshold
                     self.verifyState.observe(face, matched: matched)
+                    if matched { self.sawThresholdFrames = true }
                     if let progressHandler {
                         let matchedFrames = self.verifyState.matchedFrames
                         DispatchQueue.main.async {
@@ -336,7 +393,7 @@ final class FaceUnlockService {
             if let continuation = self.continuation {
                 self.continuation = nil
                 self.previewFrameHandler = nil
-                continuation.resume(returning: .failure(reason: .timeout, similarity: self.bestSimilarity, profile: self.matchedProfile))
+                continuation.resume(returning: self.timeoutResult())
             } else if let continuation = self.enrollmentContinuation {
                 self.enrollmentContinuation = nil
                 self.previewFrameHandler = nil
@@ -400,7 +457,7 @@ final class FaceUnlockService {
                 self.operationTimedOut = true
                 self.stopCamera()
                 if self.continuation != nil {
-                    self.finish(.failure(reason: .timeout, similarity: self.bestSimilarity, profile: self.matchedProfile))
+                    self.finish(self.timeoutResult())
                 } else if self.enrollmentContinuation != nil {
                     self.finishEnrollment()
                 }
@@ -412,6 +469,16 @@ final class FaceUnlockService {
         camera?.stop()
         camera = nil
         lastDetectedFace = nil
+    }
+
+    private func timeoutResult() -> FaceVerificationResult {
+        let reason: FaceVerificationFailure
+        if bestSimilarity >= threshold && sawThresholdFrames {
+            reason = .livenessFailed
+        } else {
+            reason = .timeout
+        }
+        return .failure(reason: reason, similarity: bestSimilarity, profile: matchedProfile)
     }
 
     private func finish(_ result: FaceVerificationResult) {
@@ -608,6 +675,7 @@ enum FaceVerificationFailure {
     case cameraUnavailable
     case cameraPermission
     case timeout
+    case livenessFailed
 
     var message: String {
         switch self {
@@ -615,6 +683,7 @@ enum FaceVerificationFailure {
         case .cameraUnavailable: return "选中的摄像头不可用。"
         case .cameraPermission: return "需要摄像头权限。"
         case .timeout: return "人脸识别超时。"
+        case .livenessFailed: return "相似度已达标，但活体动作未通过。请缓慢转头后重试。"
         }
     }
 }
