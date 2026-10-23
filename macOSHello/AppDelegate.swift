@@ -3,6 +3,18 @@ import CoreGraphics
 import os
 import ServiceManagement
 
+private enum FaceUnlockTriggerMode: Int, CaseIterable {
+    case keyboard
+    case lockImmediately
+
+    var title: String {
+        switch self {
+        case .keyboard: return "键盘触发（推荐）"
+        case .lockImmediately: return "锁屏后立即识别"
+        }
+    }
+}
+
 @NSApplicationMain
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
     @IBOutlet private var statusMenu: NSMenu?
@@ -14,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let faceProfilesMenu = NSMenu()
     private let thresholdMenu = NSMenu()
     private let cameraMenu = NSMenu()
+    private let triggerModeMenu = NSMenu()
 
     private var displaySleep = false
     private var systemSleep = false
@@ -34,6 +47,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var continuousFaceUnlockUntil = Date.distantPast
     private var suppressFaceUnlockUntil = Date.distantPast
     private var continuousFaceUnlockAttemptCount = 0
+    private var lastObservedKeyboardEventAt: TimeInterval = .infinity
+    private var lastKeyboardTriggerAt: TimeInterval = 0
+    private var keyboardTriggerArmedAt = Date.distantPast.timeIntervalSinceReferenceDate
+    private var keyboardTriggerTimer: Timer?
     private var accessibilityRetryTimer: Timer?
     private var previewWindowController: FacePreviewWindowController?
 
@@ -43,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let conservativeWakeUnlockDelay: TimeInterval = 1.5
     private let faceUnlockActiveWindow: TimeInterval = 30
     private let faceUnlockMaxAttempts = 3
+    private let keyboardTriggerPollInterval: TimeInterval = 0.25
+    private let keyboardTriggerDebounce: TimeInterval = 1
+    private let keyboardTriggerArmingDelay: TimeInterval = 0.75
     private let logger = Logger(subsystem: "com.tonydong.macOSHello", category: "face-unlock")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -50,11 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         configureStatusItem()
         registerSystemNotifications()
         startLockStatePolling()
+        startKeyboardTriggerPolling()
         checkAccessibilityPermission()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         accessibilityRetryTimer?.invalidate()
+        keyboardTriggerTimer?.invalidate()
         systemObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         systemObservers.forEach(NotificationCenter.default.removeObserver)
     }
@@ -93,6 +115,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         livenessItem.state = faceUnlock.livenessEnabled ? .on : .off
         let autoItem = menu.addItem(withTitle: "自动人脸解锁", action: #selector(toggleAutoUnlock), keyEquivalent: "")
         autoItem.state = autoUnlockEnabled ? .on : .off
+        let triggerItem = menu.addItem(withTitle: "识别触发方式", action: nil, keyEquivalent: "")
+        triggerItem.submenu = triggerModeMenu
+        rebuildTriggerModeMenu()
 
         menu.addItem(.separator())
         let passwordItem = menu.addItem(withTitle: passwordConfigured ? "设置密码..." : "设置密码...", action: #selector(setPassword), keyEquivalent: "")
@@ -110,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         if menu == faceProfilesMenu { rebuildFaceProfilesMenu() }
         if menu == cameraMenu { rebuildCameraMenu() }
         if menu == thresholdMenu { rebuildThresholdMenu() }
+        if menu == triggerModeMenu { rebuildTriggerModeMenu() }
         refreshSettingMenuStates()
     }
 
@@ -125,6 +151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var autoUnlockEnabled: Bool {
         if prefs.object(forKey: "autoFaceUnlockEnabled") == nil { return true }
         return prefs.bool(forKey: "autoFaceUnlockEnabled")
+    }
+
+    private var faceUnlockTriggerMode: FaceUnlockTriggerMode {
+        FaceUnlockTriggerMode(rawValue: prefs.integer(forKey: "faceUnlockTriggerMode")) ?? .keyboard
     }
 
     private var launchAtLoginEnabled: Bool {
@@ -172,7 +202,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.lastWakeAt = Date().timeIntervalSince1970
             self?.logger.info("屏幕已唤醒，安排人脸识别")
             self?.resetFaceUnlockAttempts()
-            self?.scheduleFaceUnlock(after: 0.75)
+            if self?.faceUnlockTriggerMode != .keyboard {
+                self?.scheduleFaceUnlock(after: 0.75)
+            }
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.displaySleep = true
@@ -187,7 +219,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.lastWakeAt = Date().timeIntervalSince1970
             self?.logger.info("系统已唤醒，安排人脸识别")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                self?.scheduleFaceUnlock(after: 1.0)
+                if self?.faceUnlockTriggerMode != .keyboard {
+                    self?.scheduleFaceUnlock(after: 1.0)
+                }
             }
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -196,7 +230,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.cancelUnlockTimers()
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-            self?.startContinuousFaceUnlock()
+            if self?.faceUnlockTriggerMode == .keyboard {
+                self?.prepareKeyboardTrigger()
+            } else {
+                self?.startContinuousFaceUnlock()
+            }
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
             self?.pendingFaceUnlock?.cancel()
@@ -207,6 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.lastSystemSleepStartedAt = 0
             self?.lastScreensaverStartedAt = 0
             self?.suppressFaceUnlockUntil = .distantPast
+            self?.keyboardTriggerArmedAt = Date.distantPast.timeIntervalSinceReferenceDate
             self?.cancelUnlockTimers()
             self?.stopContinuousFaceUnlock()
             self?.resetFaceUnlockAttempts()
@@ -214,7 +253,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         systemObservers.append(center.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstart"), object: nil, queue: .main) { [weak self] _ in
             self?.inScreensaver = true
             self?.lastScreensaverStartedAt = Date().timeIntervalSince1970
-            self?.scheduleFaceUnlock(after: 0.5)
+            if self?.faceUnlockTriggerMode != .keyboard {
+                self?.scheduleFaceUnlock(after: 0.5)
+            }
         })
         systemObservers.append(center.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstop"), object: nil, queue: .main) { [weak self] _ in
             self?.inScreensaver = false
@@ -232,6 +273,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         pendingFaceUnlock?.cancel()
         pendingFaceUnlock = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func startKeyboardTriggerPolling() {
+        lastObservedKeyboardEventAt = Self.secondsSinceLastKeyboardEvent
+        keyboardTriggerTimer = Timer.scheduledTimer(withTimeInterval: keyboardTriggerPollInterval, repeats: true) { [weak self] _ in
+            self?.pollKeyboardTrigger()
+        }
+    }
+
+    private func prepareKeyboardTrigger() {
+        resetFaceUnlockAttempts()
+        lastObservedKeyboardEventAt = Self.secondsSinceLastKeyboardEvent
+        keyboardTriggerArmedAt = Date().timeIntervalSinceReferenceDate
+        logger.info("已锁定屏幕，等待键盘触发人脸识别")
+        updateStatus("等待键盘触发")
+    }
+
+    private func pollKeyboardTrigger() {
+        guard faceUnlockTriggerMode == .keyboard,
+              autoUnlockEnabled,
+              !systemSleep,
+              !displaySleep,
+              isScreenLocked(),
+              !faceOperationActive,
+              Date() >= suppressFaceUnlockUntil,
+              continuousFaceUnlockAttemptCount < faceUnlockMaxAttempts else { return }
+
+        let secondsSinceLastEvent = Self.secondsSinceLastKeyboardEvent
+        guard secondsSinceLastEvent < lastObservedKeyboardEventAt else { return }
+        lastObservedKeyboardEventAt = secondsSinceLastEvent
+
+        let elapsedSinceLock = Date().timeIntervalSinceReferenceDate - keyboardTriggerArmedAt
+        guard elapsedSinceLock >= keyboardTriggerArmingDelay else { return }
+        guard Date().timeIntervalSinceReferenceDate - lastKeyboardTriggerAt >= keyboardTriggerDebounce else { return }
+
+        lastKeyboardTriggerAt = Date().timeIntervalSinceReferenceDate
+        logger.info("检测到键盘活动，触发人脸识别")
+        startContinuousFaceUnlock()
+    }
+
+    private static var secondsSinceLastKeyboardEvent: TimeInterval {
+        let keyEvents: [CGEventType] = [.keyDown, .keyUp]
+        let seconds = keyEvents.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity
+        return seconds
     }
 
     private func stopCameraWhenDisplayIsOff() {
@@ -323,10 +408,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 self.logger.info("检测到锁屏状态变化：\(locked ? "已锁定" : "已解锁", privacy: .public)")
                 self.lastKnownLockedState = locked
             if locked {
-                self.startContinuousFaceUnlock()
+                if self.faceUnlockTriggerMode == .keyboard {
+                    self.prepareKeyboardTrigger()
+                } else {
+                    self.startContinuousFaceUnlock()
+                }
             } else {
                 self.faceUnlock.stopCurrentOperation()
                 self.faceOperationActive = false
+                self.keyboardTriggerArmedAt = Date.distantPast.timeIntervalSinceReferenceDate
                 self.pendingFaceUnlock?.cancel()
                     self.pendingFaceUnlock = nil
                     self.cancelUnlockTimers()
@@ -340,6 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private func startContinuousFaceUnlock() {
         continuousFaceUnlockEnabled = true
         resetFaceUnlockAttempts()
+        lastKeyboardTriggerAt = Date().timeIntervalSinceReferenceDate
         continuousFaceUnlockUntil = Date().addingTimeInterval(faceUnlockActiveWindow)
         scheduleContinuousFaceUnlock(after: 0.5)
     }
@@ -570,6 +661,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         }
     }
 
+    @objc private func setFaceUnlockTriggerMode(_ menuItem: NSMenuItem) {
+        guard let mode = FaceUnlockTriggerMode(rawValue: menuItem.tag), mode != faceUnlockTriggerMode else { return }
+        prefs.set(mode.rawValue, forKey: "faceUnlockTriggerMode")
+        rebuildTriggerModeMenu()
+        logger.info("识别触发方式已切换为：\(mode.title, privacy: .public)")
+
+        if mode == .keyboard {
+            stopContinuousFaceUnlock()
+            faceUnlock.stopCurrentOperation()
+            faceOperationActive = false
+            pendingFaceUnlock?.cancel()
+            pendingFaceUnlock = nil
+            if isScreenLocked() { prepareKeyboardTrigger() }
+        } else if isScreenLocked() {
+            startContinuousFaceUnlock()
+        }
+    }
+
     @objc private func setPassword() {
         let alert = NSAlert()
         alert.messageText = "设置登录密码"
@@ -658,6 +767,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             let item = cameraMenu.addItem(withTitle: camera.localizedName, action: #selector(setFaceCamera), keyEquivalent: "")
             item.representedObject = camera.uniqueID
             item.state = faceUnlock.cameraID == camera.uniqueID ? .on : .off
+        }
+    }
+
+    private func rebuildTriggerModeMenu() {
+        triggerModeMenu.removeAllItems()
+        for mode in FaceUnlockTriggerMode.allCases {
+            let item = triggerModeMenu.addItem(withTitle: mode.title, action: #selector(setFaceUnlockTriggerMode), keyEquivalent: "")
+            item.tag = mode.rawValue
+            item.state = mode == faceUnlockTriggerMode ? .on : .off
         }
     }
 
