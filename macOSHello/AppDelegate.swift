@@ -9,7 +9,7 @@ private enum FaceUnlockTriggerMode: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .keyboard: return "键盘触发（推荐）"
+        case .keyboard: return "键盘或鼠标触发（推荐）"
         case .lockImmediately: return "锁屏后立即识别"
         }
     }
@@ -276,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func startKeyboardTriggerPolling() {
-        lastObservedKeyboardEventAt = Self.secondsSinceLastKeyboardEvent
+        lastObservedKeyboardEventAt = Self.secondsSinceLastInputEvent
         keyboardTriggerTimer = Timer.scheduledTimer(withTimeInterval: keyboardTriggerPollInterval, repeats: true) { [weak self] _ in
             self?.pollKeyboardTrigger()
         }
@@ -284,10 +284,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func prepareKeyboardTrigger() {
         resetFaceUnlockAttempts()
-        lastObservedKeyboardEventAt = Self.secondsSinceLastKeyboardEvent
+        lastObservedKeyboardEventAt = Self.secondsSinceLastInputEvent
         keyboardTriggerArmedAt = Date().timeIntervalSinceReferenceDate
-        logger.info("已锁定屏幕，等待键盘触发人脸识别")
-        updateStatus("等待键盘触发")
+        logger.info("已锁定屏幕，等待键盘或鼠标触发人脸识别")
+        updateStatus("等待键盘或鼠标触发")
     }
 
     private func pollKeyboardTrigger() {
@@ -300,7 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
               Date() >= suppressFaceUnlockUntil,
               continuousFaceUnlockAttemptCount < faceUnlockMaxAttempts else { return }
 
-        let secondsSinceLastEvent = Self.secondsSinceLastKeyboardEvent
+        let secondsSinceLastEvent = Self.secondsSinceLastInputEvent
         guard secondsSinceLastEvent < lastObservedKeyboardEventAt else { return }
         lastObservedKeyboardEventAt = secondsSinceLastEvent
 
@@ -313,9 +313,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         startContinuousFaceUnlock()
     }
 
-    private static var secondsSinceLastKeyboardEvent: TimeInterval {
-        let keyEvents: [CGEventType] = [.keyDown, .keyUp]
-        let seconds = keyEvents.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity
+    private static var secondsSinceLastInputEvent: TimeInterval {
+        let eventTypes: [CGEventType] = [
+            .keyDown,
+            .keyUp,
+            .mouseMoved,
+            .leftMouseDragged,
+            .rightMouseDragged,
+            .otherMouseDragged
+        ]
+        let seconds = eventTypes
+            .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }
+            .min() ?? .infinity
         return seconds
     }
 
