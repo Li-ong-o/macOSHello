@@ -57,14 +57,14 @@ macOSHello 监听锁屏、屏幕唤醒、系统唤醒和屏保通知，并在锁
 
 macOSHello 没有使用第三方库，全部依赖 macOS 系统框架：
 
-| 用途 | 系统 API |
-| --- | --- |
-| 摄像头采集 | AVFoundation |
-| 人脸检测与特征识别 | Vision |
-| 图像和视频缓冲处理 | CoreGraphics、CoreVideo |
-| 菜单栏与设置界面 | AppKit |
-| 密码保存 | Security |
-| 开机启动 | ServiceManagement |
+| 用途        | 系统 API                                       |
+| --------- | -------------------------------------------- |
+| 摄像头采集     | AVFoundation                                 |
+| 人脸检测与特征识别 | Vision                                       |
+| 图像和视频缓冲处理 | CoreGraphics、CoreVideo                       |
+| 菜单栏与设置界面  | AppKit                                       |
+| 密码保存      | Security                                     |
+| 开机启动      | ServiceManagement                            |
 | 锁屏与系统状态日志 | os、DistributedNotificationCenter、NSWorkspace |
 
 人脸识别的核心是 `VNGenerateImageFeaturePrintRequest` 生成的本地特征向量，以及余弦相似度比对。项目不依赖 OpenCV、Python 或云端模型。

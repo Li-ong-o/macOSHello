@@ -4,6 +4,8 @@ private var aboutBox: AboutBox? = nil
 
 class AboutBox: NSWindowController, NSWindowDelegate {
     @IBOutlet weak var versionLabel: NSTextField!
+    private let homepageURL = URL(string: "https://github.com/Li-ong-o/macOSHello")!
+    private let releasesURL = URL(string: "https://github.com/Li-ong-o/macOSHello/releases")!
     convenience init() {
         self.init(windowNibName: "AboutBox")
     }
@@ -21,6 +23,14 @@ class AboutBox: NSWindowController, NSWindowDelegate {
 
     override func cancelOperation(_ sender: Any?) {
         close()
+    }
+
+    @IBAction func visitHomepage(_ sender: Any?) {
+        NSWorkspace.shared.open(homepageURL)
+    }
+
+    @IBAction func checkReleases(_ sender: Any?) {
+        NSWorkspace.shared.open(releasesURL)
     }
 
     static func showAboutBox() {
