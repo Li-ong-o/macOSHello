@@ -135,4 +135,9 @@ macOSHello 的锁屏与自动解锁流程参考并衍生自 [BLEUnlock](https://
 
 ## License
 
-MIT License. See [LICENSE](LICENSE).
+macOSHello is licensed under the GNU General Public License v3.0. See
+[LICENSE](LICENSE).
+
+This project is derived from BLEUnlock, and portions originating from
+BLEUnlock remain subject to the original authors' MIT License notice. See
+[NOTICE](NOTICE) for the retained MIT notice and attribution.
