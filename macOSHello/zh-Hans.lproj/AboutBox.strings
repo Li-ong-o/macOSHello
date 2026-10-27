@@ -3,3 +3,12 @@
 
 /* Class = "NSWindow"; title = "About macOSHello"; ObjectID = "hgX-Z1-8qq"; */
 "hgX-Z1-8qq.title" = "关于 macOSHello";
+
+/* Class = "NSTextFieldCell"; title = "macOSHello - On-device face unlock"; ObjectID = "GN4-8z-o8I"; */
+"GN4-8z-o8I.title" = "macOSHello - 纯本地人脸解锁";
+
+/* Class = "NSButtonCell"; title = "Fork Homepage"; ObjectID = "fPY-L3-Edh"; */
+"fPY-L3-Edh.title" = "项目主页";
+
+/* Class = "NSButtonCell"; title = "Release Notes"; ObjectID = "WIg-Gy-UeI"; */
+"WIg-Gy-UeI.title" = "发布日志";

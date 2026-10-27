@@ -1,0 +1,91 @@
+/* Menu */
+"menu_enroll_face" = "Enroll Face...";
+"menu_verify_now" = "Run Face Recognition Test";
+"menu_registered_faces" = "Enrolled Faces";
+"menu_camera" = "Camera";
+"menu_similarity_threshold" = "Similarity Threshold";
+"menu_liveness" = "Liveness Detection";
+"menu_auto_unlock" = "Automatic Face Unlock";
+"menu_trigger_mode" = "Recognition Trigger";
+"menu_set_password" = "Set Password...";
+"menu_launch_at_login" = "Launch at Login";
+"menu_lock_now" = "Lock Screen Now";
+"menu_about" = "About macOSHello";
+"menu_quit" = "Quit";
+"trigger_keyboard" = "Keyboard or Mouse Trigger (Recommended)";
+"trigger_lock_immediately" = "Recognize Immediately After Lock";
+
+/* Status */
+"status_waiting_input" = "Waiting for keyboard or mouse";
+"status_verifying" = "Recognizing";
+"status_success_unlocking" = "Matched, unlocking";
+"status_success" = "Matched";
+"status_failed_retry" = "No match, retrying";
+"status_failed_3" = "No match after 3 attempts";
+"status_failed" = "No match";
+"status_timeout" = "Recognition timed out";
+"status_missing_accessibility" = "Accessibility permission required";
+"status_accessibility_ready" = "Accessibility ready";
+"status_password_missing" = "Login password not set";
+"status_entering_password" = "Entering password";
+"status_unlock_failed" = "Still locked after password entry";
+"status_lock_requested" = "Lock requested";
+"status_lock_failed" = "Lock failed";
+
+/* Enrollment */
+"enroll_title" = "Enroll Face";
+"enroll_message" = "Look at the camera and slowly turn your head. 8 samples will be captured on this Mac.";
+"field_name" = "Name";
+"button_continue" = "Continue";
+"button_cancel" = "Cancel";
+"button_delete" = "Delete";
+"button_save" = "Save";
+"button_ok" = "OK";
+"enroll_success_title" = "Enrollment Complete";
+"enroll_success_message" = "Saved face data for %@.";
+"enroll_failed_title" = "Enrollment Failed";
+"delete_all_title" = "Delete all enrolled faces?";
+"delete_all_message" = "All face feature data stored on this Mac will be deleted.";
+"no_profiles" = "No enrolled faces";
+"profile_delete" = "%@ (%@, delete)";
+"delete_all" = "Delete All Faces";
+
+/* Verification */
+"verify_success_title" = "Verification Complete";
+"verify_success_message" = "Similarity for %@ is %.3f.";
+"verify_failed_title" = "Verification Failed";
+"detail_max_similarity" = ", best similarity %.3f";
+"preview_title" = "Face Recognition Test";
+"preview_starting" = "Starting camera...";
+"preview_retry" = "Recognize Again";
+"preview_verifying" = "Recognizing. Look at the camera and slowly turn your head.";
+"preview_progress" = "Similarity %.3f / threshold %.2f, consecutive frames %d/8";
+"preview_success" = "Matched: %@, similarity %.3f";
+
+/* Password and settings */
+"password_title" = "Set Login Password";
+"password_message" = "The password is stored only in this Mac's Keychain and is used to unlock the current login session.";
+"startup_unsupported_title" = "Cannot Configure";
+"startup_unsupported_message" = "This macOS version does not support configuring launch at login in the app.";
+"startup_failed_title" = "Setting Failed";
+"lock_failed_message" = "The system returned error %d.";
+"password_empty_title" = "Empty Password";
+"password_empty_message" = "Enter a valid login password.";
+"password_saved_title" = "Password Saved";
+"password_saved_message" = "The password has been saved to this Mac's Keychain.";
+"password_save_failed_title" = "Save Failed";
+"keychain_error" = "Keychain write error: %d";
+"password_not_set_title" = "Password Not Set";
+"password_not_set_message" = "Set your login password in the menu first.";
+
+/* Camera and errors */
+"no_cameras" = "No camera available";
+"error_no_camera" = "No camera is available.";
+"error_camera_permission_denied" = "Camera permission was denied.";
+"error_timeout" = "Face capture timed out (8 consecutive frames above the threshold are required).";
+"error_enrollment_missing" = "No face has been enrolled.";
+"failure_no_enrollment" = "No face has been enrolled.";
+"failure_camera_unavailable" = "The selected camera is unavailable.";
+"failure_camera_permission" = "Camera permission is required.";
+"failure_timeout" = "Face recognition timed out.";
+"failure_liveness" = "The similarity threshold was reached, but the liveness motion check failed. Slowly turn your head and try again.";

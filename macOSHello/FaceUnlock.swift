@@ -223,10 +223,10 @@ enum FaceUnlockError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noCamera: return "没有可用的摄像头。"
-        case .cameraPermissionDenied: return "摄像头权限被拒绝。"
-        case .timeout: return "人脸采集超时（需要连续 8 帧达到阈值）。"
-        case .enrollmentMissing: return "尚未注册人脸。"
+        case .noCamera: return L("error_no_camera")
+        case .cameraPermissionDenied: return L("error_camera_permission_denied")
+        case .timeout: return L("error_timeout")
+        case .enrollmentMissing: return L("error_enrollment_missing")
         }
     }
 }
@@ -499,8 +499,8 @@ final class FaceUnlockService {
 final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
     private let faceUnlock: FaceUnlockService
     private let imageView = NSImageView()
-    private let statusLabel = NSTextField(labelWithString: "正在启动摄像头...")
-    private let retryButton = NSButton(title: "重新识别", target: nil, action: nil)
+    private let statusLabel = NSTextField(labelWithString: L("preview_starting"))
+    private let retryButton = NSButton(title: L("preview_retry"), target: nil, action: nil)
     private var verificationTask: Task<Void, Never>?
     private var isVerifying = false
     var didFinish: (() -> Void)?
@@ -513,7 +513,7 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "立即识别测试"
+        window.title = L("preview_title")
         window.isReleasedWhenClosed = false
         window.center()
         super.init(window: window)
@@ -559,7 +559,7 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         isVerifying = true
         retryButton.isEnabled = false
         imageView.image = nil
-        statusLabel.stringValue = "正在识别，请看向摄像头并缓慢转头"
+        statusLabel.stringValue = L("preview_verifying")
         statusLabel.textColor = .white
         verificationTask = Task { [weak self] in
             guard let self else { return }
@@ -571,7 +571,7 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
                 let threshold = self.faceUnlock.threshold
                 self.statusLabel.textColor = similarity >= threshold ? NSColor.systemGreen : NSColor.white
                 self.statusLabel.stringValue = String(
-                    format: "实时相似度 %.3f / 阈值 %.2f，连续达标 %d/8 帧",
+                    format: LF("preview_progress"),
                     similarity,
                     threshold,
                     matchedFrames
@@ -590,10 +590,10 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         retryButton.isEnabled = true
         switch result {
         case .success(let similarity, let profile):
-            statusLabel.stringValue = String(format: "识别成功：%@，相似度 %.3f", profile.name, similarity)
+            statusLabel.stringValue = LF("preview_success", profile.name, similarity)
             statusLabel.textColor = NSColor.systemGreen
         case .failure(let reason, let similarity, _):
-            let detail = similarity.map { String(format: "，最高相似度 %.3f", $0) } ?? ""
+            let detail = similarity.map { LF("detail_max_similarity", $0) } ?? ""
             statusLabel.stringValue = reason.message + detail
             statusLabel.textColor = NSColor.systemRed
         }
@@ -679,11 +679,11 @@ enum FaceVerificationFailure {
 
     var message: String {
         switch self {
-        case .noEnrollment: return "尚未注册人脸。"
-        case .cameraUnavailable: return "选中的摄像头不可用。"
-        case .cameraPermission: return "需要摄像头权限。"
-        case .timeout: return "人脸识别超时。"
-        case .livenessFailed: return "相似度已达标，但活体动作未通过。请缓慢转头后重试。"
+        case .noEnrollment: return L("failure_no_enrollment")
+        case .cameraUnavailable: return L("failure_camera_unavailable")
+        case .cameraPermission: return L("failure_camera_permission")
+        case .timeout: return L("failure_timeout")
+        case .livenessFailed: return L("failure_liveness")
         }
     }
 }

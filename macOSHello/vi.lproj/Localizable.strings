@@ -1,0 +1,91 @@
+/* Menu */
+"menu_enroll_face" = "Đăng ký khuôn mặt...";
+"menu_verify_now" = "Chạy thử nhận diện khuôn mặt";
+"menu_registered_faces" = "Khuôn mặt đã đăng ký";
+"menu_camera" = "Máy quay";
+"menu_similarity_threshold" = "Ngưỡng tương đồng";
+"menu_liveness" = "Phát hiện sống";
+"menu_auto_unlock" = "Tự động mở khóa bằng khuôn mặt";
+"menu_trigger_mode" = "Thời điểm nhận diện";
+"menu_set_password" = "Đặt mật khẩu...";
+"menu_launch_at_login" = "Khởi động khi đăng nhập";
+"menu_lock_now" = "Khóa màn hình ngay";
+"menu_about" = "Giới thiệu macOSHello";
+"menu_quit" = "Thoát";
+"trigger_keyboard" = "Kích hoạt bằng bàn phím hoặc chuột (khuyến nghị)";
+"trigger_lock_immediately" = "Nhận diện ngay sau khi khóa";
+
+/* Status */
+"status_waiting_input" = "Đang chờ bàn phím hoặc chuột";
+"status_verifying" = "Đang nhận diện";
+"status_success_unlocking" = "Đã khớp, đang mở khóa";
+"status_success" = "Đã khớp";
+"status_failed_retry" = "Không khớp, chuẩn bị thử lại";
+"status_failed_3" = "Không khớp sau 3 lần";
+"status_failed" = "Không khớp";
+"status_timeout" = "Nhận diện đã hết thời gian";
+"status_missing_accessibility" = "Cần quyền Trợ năng";
+"status_accessibility_ready" = "Trợ năng đã sẵn sàng";
+"status_password_missing" = "Chưa đặt mật khẩu đăng nhập";
+"status_entering_password" = "Đang nhập mật khẩu";
+"status_unlock_failed" = "Vẫn bị khóa sau khi nhập";
+"status_lock_requested" = "Đã yêu cầu khóa màn hình";
+"status_lock_failed" = "Khóa màn hình thất bại";
+
+/* Enrollment */
+"enroll_title" = "Đăng ký khuôn mặt";
+"enroll_message" = "Hãy nhìn vào máy quay và xoay đầu chậm rãi. 8 mẫu sẽ được thu thập trên máy Mac này.";
+"field_name" = "Tên";
+"button_continue" = "Tiếp tục";
+"button_cancel" = "Hủy";
+"button_delete" = "Xóa";
+"button_save" = "Lưu";
+"button_ok" = "OK";
+"enroll_success_title" = "Đã đăng ký";
+"enroll_success_message" = "Đã lưu dữ liệu khuôn mặt của %@.";
+"enroll_failed_title" = "Đăng ký thất bại";
+"delete_all_title" = "Xóa toàn bộ khuôn mặt đã đăng ký?";
+"delete_all_message" = "Toàn bộ dữ liệu đặc trưng khuôn mặt lưu trên máy Mac này sẽ bị xóa.";
+"no_profiles" = "Chưa có khuôn mặt nào";
+"profile_delete" = "%@ (%@, xóa)";
+"delete_all" = "Xóa toàn bộ khuôn mặt";
+
+/* Verification */
+"verify_success_title" = "Nhận diện thành công";
+"verify_success_message" = "Mức tương đồng của %@ là %.3f.";
+"verify_failed_title" = "Nhận diện thất bại";
+"detail_max_similarity" = ", mức tương đồng cao nhất %.3f";
+"preview_title" = "Thử nhận diện khuôn mặt";
+"preview_starting" = "Đang khởi động máy quay...";
+"preview_retry" = "Nhận diện lại";
+"preview_verifying" = "Đang nhận diện. Hãy nhìn vào máy quay và xoay đầu chậm rãi.";
+"preview_progress" = "Tương đồng %.3f / ngưỡng %.2f, số khung liên tiếp %d/8";
+"preview_success" = "Khớp: %@, tương đồng %.3f";
+
+/* Password and settings */
+"password_title" = "Đặt mật khẩu đăng nhập";
+"password_message" = "Mật khẩu chỉ lưu trong Keychain của máy Mac này và dùng để mở khóa phiên đăng nhập hiện tại.";
+"startup_unsupported_title" = "Không thể thiết lập";
+"startup_unsupported_message" = "Phiên bản macOS này không hỗ trợ thiết lập khởi động khi đăng nhập trong ứng dụng.";
+"startup_failed_title" = "Thiết lập thất bại";
+"lock_failed_message" = "Hệ thống trả về lỗi %d.";
+"password_empty_title" = "Mật khẩu trống";
+"password_empty_message" = "Hãy nhập mật khẩu đăng nhập hợp lệ.";
+"password_saved_title" = "Đã lưu mật khẩu";
+"password_saved_message" = "Mật khẩu đã được lưu vào Keychain của máy Mac này.";
+"password_save_failed_title" = "Lưu thất bại";
+"keychain_error" = "Lỗi ghi Keychain: %d";
+"password_not_set_title" = "Chưa đặt mật khẩu";
+"password_not_set_message" = "Hãy đặt mật khẩu đăng nhập trong trình đơn trước.";
+
+/* Camera and errors */
+"no_cameras" = "Không có máy quay";
+"error_no_camera" = "Không có máy quay khả dụng.";
+"error_camera_permission_denied" = "Quyền máy quay đã bị từ chối.";
+"error_timeout" = "Thu thập khuôn mặt đã hết thời gian (cần 8 khung liên tiếp đạt ngưỡng).";
+"error_enrollment_missing" = "Chưa đăng ký khuôn mặt.";
+"failure_no_enrollment" = "Chưa đăng ký khuôn mặt.";
+"failure_camera_unavailable" = "Máy quay đang chọn không khả dụng.";
+"failure_camera_permission" = "Cần quyền máy quay.";
+"failure_timeout" = "Nhận diện khuôn mặt đã hết thời gian.";
+"failure_liveness" = "Đã đạt ngưỡng tương đồng nhưng chưa qua kiểm tra động tác sống. Hãy xoay đầu chậm rãi và thử lại.";

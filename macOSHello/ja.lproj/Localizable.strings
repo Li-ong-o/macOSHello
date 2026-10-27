@@ -1,0 +1,91 @@
+/* Menu */
+"menu_enroll_face" = "顔を登録...";
+"menu_verify_now" = "顔認識テストを実行";
+"menu_registered_faces" = "登録済みの顔";
+"menu_camera" = "カメラ";
+"menu_similarity_threshold" = "類似度しきい値";
+"menu_liveness" = "生体検出";
+"menu_auto_unlock" = "自動顔認識ロック解除";
+"menu_trigger_mode" = "認識のトリガー";
+"menu_set_password" = "パスワードを設定...";
+"menu_launch_at_login" = "ログイン時に起動";
+"menu_lock_now" = "今すぐ画面をロック";
+"menu_about" = "macOSHelloについて";
+"menu_quit" = "終了";
+"trigger_keyboard" = "キーボードまたはマウス入力で認識（推奨）";
+"trigger_lock_immediately" = "ロック後にすぐ認識";
+
+/* Status */
+"status_waiting_input" = "キーボードまたはマウス入力を待機中";
+"status_verifying" = "認識中";
+"status_success_unlocking" = "一致しました。ロック解除中";
+"status_success" = "一致しました";
+"status_failed_retry" = "不一致のため再試行します";
+"status_failed_3" = "3回不一致";
+"status_failed" = "不一致";
+"status_timeout" = "認識がタイムアウトしました";
+"status_missing_accessibility" = "アクセシビリティ権限が必要です";
+"status_accessibility_ready" = "アクセシビリティ準備完了";
+"status_password_missing" = "ログインパスワードが未設定です";
+"status_entering_password" = "パスワードを入力中";
+"status_unlock_failed" = "入力後もロックが解除されません";
+"status_lock_requested" = "画面ロックを要求しました";
+"status_lock_failed" = "ロックに失敗しました";
+
+/* Enrollment */
+"enroll_title" = "顔を登録";
+"enroll_message" = "カメラを見てゆっくり頭を回してください。このMacで8つのサンプルを収集します。";
+"field_name" = "名前";
+"button_continue" = "続ける";
+"button_cancel" = "キャンセル";
+"button_delete" = "削除";
+"button_save" = "保存";
+"button_ok" = "OK";
+"enroll_success_title" = "登録完了";
+"enroll_success_message" = "%@ の顔データを保存しました。";
+"enroll_failed_title" = "登録に失敗しました";
+"delete_all_title" = "登録済みの顔をすべて削除しますか？";
+"delete_all_message" = "このMacに保存されたすべての顔特徴データを削除します。";
+"no_profiles" = "登録済みの顔はありません";
+"profile_delete" = "%@（%@、削除）";
+"delete_all" = "すべての顔を削除";
+
+/* Verification */
+"verify_success_title" = "認識成功";
+"verify_success_message" = "%@ の類似度は %.3f です。";
+"verify_failed_title" = "認識失敗";
+"detail_max_similarity" = "、最高類似度 %.3f";
+"preview_title" = "顔認識テスト";
+"preview_starting" = "カメラを起動中...";
+"preview_retry" = "再認識";
+"preview_verifying" = "認識中です。カメラを見てゆっくり頭を回してください。";
+"preview_progress" = "現在の類似度 %.3f / しきい値 %.2f、連続達成 %d/8 フレーム";
+"preview_success" = "認識成功：%@、類似度 %.3f";
+
+/* Password and settings */
+"password_title" = "ログインパスワードを設定";
+"password_message" = "パスワードはこのMacのキーチェーンにのみ保存され、現在のログインセッションのロック解除に使われます。";
+"startup_unsupported_title" = "設定できません";
+"startup_unsupported_message" = "このmacOSバージョンではアプリ内でのログイン時起動設定に対応していません。";
+"startup_failed_title" = "設定に失敗しました";
+"lock_failed_message" = "システムがエラー %d を返しました。";
+"password_empty_title" = "パスワードが空です";
+"password_empty_message" = "有効なログインパスワードを入力してください。";
+"password_saved_title" = "パスワードを保存しました";
+"password_saved_message" = "パスワードをこのMacのキーチェーンに保存しました。";
+"password_save_failed_title" = "保存に失敗しました";
+"keychain_error" = "キーチェーン書き込みエラー：%d";
+"password_not_set_title" = "パスワードが未設定です";
+"password_not_set_message" = "先にメニューからログインパスワードを設定してください。";
+
+/* Camera and errors */
+"no_cameras" = "利用できるカメラがありません";
+"error_no_camera" = "利用できるカメラがありません。";
+"error_camera_permission_denied" = "カメラ権限が拒否されました。";
+"error_timeout" = "顔の収集がタイムアウトしました（しきい値を8フレーム連続で満たす必要があります）。";
+"error_enrollment_missing" = "顔が登録されていません。";
+"failure_no_enrollment" = "顔が登録されていません。";
+"failure_camera_unavailable" = "選択したカメラは利用できません。";
+"failure_camera_permission" = "カメラ権限が必要です。";
+"failure_timeout" = "顔認識がタイムアウトしました。";
+"failure_liveness" = "類似度は基準に達しましたが、生体動作チェックを通過しませんでした。ゆっくり頭を回して再試行してください。";

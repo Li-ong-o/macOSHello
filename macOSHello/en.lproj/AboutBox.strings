@@ -1,0 +1,14 @@
+/* Class = "NSTextFieldCell"; title = "macOSHello version #{version}"; ObjectID = "VLW-23-BX0"; */
+"VLW-23-BX0.title" = "macOSHello version #{version}";
+
+/* Class = "NSWindow"; title = "About macOSHello"; ObjectID = "hgX-Z1-8qq"; */
+"hgX-Z1-8qq.title" = "About macOSHello";
+
+/* Class = "NSTextFieldCell"; title = "macOSHello - On-device face unlock"; ObjectID = "GN4-8z-o8I"; */
+"GN4-8z-o8I.title" = "macOSHello - On-device face unlock";
+
+/* Class = "NSButtonCell"; title = "Fork Homepage"; ObjectID = "fPY-L3-Edh"; */
+"fPY-L3-Edh.title" = "Project Homepage";
+
+/* Class = "NSButtonCell"; title = "Release Notes"; ObjectID = "WIg-Gy-UeI"; */
+"WIg-Gy-UeI.title" = "Release Notes";

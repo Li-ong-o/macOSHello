@@ -1,0 +1,91 @@
+/* Menu */
+"menu_enroll_face" = "ลงทะเบียนใบหน้า...";
+"menu_verify_now" = "ทดสอบการจดจำใบหน้า";
+"menu_registered_faces" = "ใบหน้าที่ลงทะเบียน";
+"menu_camera" = "กล้อง";
+"menu_similarity_threshold" = "เกณฑ์ความคล้ายคลึง";
+"menu_liveness" = "การตรวจจับความเป็นมนุษย์";
+"menu_auto_unlock" = "ปลดล็อกอัตโนมัติด้วยใบหน้า";
+"menu_trigger_mode" = "จุดเริ่มการจดจำ";
+"menu_set_password" = "ตั้งรหัสผ่าน...";
+"menu_launch_at_login" = "เริ่มทำงานเมื่อเข้าสู่ระบบ";
+"menu_lock_now" = "ล็อกหน้าจอตอนนี้";
+"menu_about" = "เกี่ยวกับ macOSHello";
+"menu_quit" = "ออก";
+"trigger_keyboard" = "เริ่มจดจำเมื่อพิมพ์หรือใช้เมาส์ (แนะนำ)";
+"trigger_lock_immediately" = "จดจำทันทีหลังล็อก";
+
+/* Status */
+"status_waiting_input" = "กำลังรอคีย์บอร์ดหรือเมาส์";
+"status_verifying" = "กำลังจดจำ";
+"status_success_unlocking" = "ตรงกัน กำลังปลดล็อก";
+"status_success" = "ตรงกัน";
+"status_failed_retry" = "ไม่ตรง กำลังเตรียมลองอีกครั้ง";
+"status_failed_3" = "ไม่ตรง 3 ครั้ง";
+"status_failed" = "ไม่ตรง";
+"status_timeout" = "การจดจำหมดเวลา";
+"status_missing_accessibility" = "ต้องมีสิทธิ์การช่วยการเข้าถึง";
+"status_accessibility_ready" = "การช่วยการเข้าถึงพร้อมแล้ว";
+"status_password_missing" = "ยังไม่ได้ตั้งรหัสผ่านเข้าสู่ระบบ";
+"status_entering_password" = "กำลังป้อนรหัสผ่าน";
+"status_unlock_failed" = "ยังล็อกอยู่หลังป้อนรหัสผ่าน";
+"status_lock_requested" = "ส่งคำขอล็อกหน้าจอแล้ว";
+"status_lock_failed" = "ล็อกหน้าจอไม่สำเร็จ";
+
+/* Enrollment */
+"enroll_title" = "ลงทะเบียนใบหน้า";
+"enroll_message" = "มองกล้องและหมุนศีรษะช้าๆ ระบบจะเก็บ 8 ตัวอย่างบน Mac เครื่องนี้";
+"field_name" = "ชื่อ";
+"button_continue" = "ดำเนินการต่อ";
+"button_cancel" = "ยกเลิก";
+"button_delete" = "ลบ";
+"button_save" = "บันทึก";
+"button_ok" = "ตกลง";
+"enroll_success_title" = "ลงทะเบียนสำเร็จ";
+"enroll_success_message" = "บันทึกข้อมูลใบหน้าของ %@ แล้ว";
+"enroll_failed_title" = "ลงทะเบียนไม่สำเร็จ";
+"delete_all_title" = "ลบใบหน้าที่ลงทะเบียนทั้งหมดหรือไม่?";
+"delete_all_message" = "ข้อมูลลักษณะใบหน้าทั้งหมดที่เก็บบน Mac เครื่องนี้จะถูกลบ";
+"no_profiles" = "ยังไม่มีใบหน้าที่ลงทะเบียน";
+"profile_delete" = "%@ (%@, ลบ)";
+"delete_all" = "ลบใบหน้าทั้งหมด";
+
+/* Verification */
+"verify_success_title" = "จดจำสำเร็จ";
+"verify_success_message" = "ความคล้ายคลึงของ %@ คือ %.3f";
+"verify_failed_title" = "จดจำไม่สำเร็จ";
+"detail_max_similarity" = " ความคล้ายคลึงสูงสุด %.3f";
+"preview_title" = "ทดสอบการจดจำใบหน้า";
+"preview_starting" = "กำลังเปิดกล้อง...";
+"preview_retry" = "จดจำอีกครั้ง";
+"preview_verifying" = "กำลังจดจำ โปรดมองกล้องและหมุนศีรษะช้าๆ";
+"preview_progress" = "ความคล้ายคลึง %.3f / เกณฑ์ %.2f, เฟิร์มติดต่อกัน %d/8";
+"preview_success" = "ตรงกัน: %@ ความคล้ายคลึง %.3f";
+
+/* Password and settings */
+"password_title" = "ตั้งรหัสผ่านเข้าสู่ระบบ";
+"password_message" = "รหัสผ่านจะเก็บไว้ใน Keychain ของ Mac เครื่องนี้เท่านั้น และใช้ปลดล็อกเซสชันที่เข้าสู่ระบบอยู่";
+"startup_unsupported_title" = "ตั้งค่าไม่ได้";
+"startup_unsupported_message" = "macOS เวอร์ชันนี้ไม่รองรับการตั้งค่าเริ่มเมื่อเข้าสู่ระบบภายในแอป";
+"startup_failed_title" = "ตั้งค่าไม่สำเร็จ";
+"lock_failed_message" = "ระบบส่งรหัสข้อผิดพลาด %d กลับมา";
+"password_empty_title" = "รหัสผ่านว่าง";
+"password_empty_message" = "โปรดป้อนรหัสผ่านเข้าสู่ระบบที่ถูกต้อง";
+"password_saved_title" = "บันทึกรหัสผ่านแล้ว";
+"password_saved_message" = "บันทึกรหัสผ่านไว้ใน Keychain ของ Mac เครื่องนี้แล้ว";
+"password_save_failed_title" = "บันทึกไม่สำเร็จ";
+"keychain_error" = "ข้อผิดพลาดการเขียน Keychain: %d";
+"password_not_set_title" = "ยังไม่ได้ตั้งรหัสผ่าน";
+"password_not_set_message" = "โปรดตั้งรหัสผ่านเข้าสู่ระบบในเมนูก่อน";
+
+/* Camera and errors */
+"no_cameras" = "ไม่มีกล้องที่ใช้ได้";
+"error_no_camera" = "ไม่มีกล้องที่ใช้งานได้";
+"error_camera_permission_denied" = "สิทธิ์กล้องถูกปฏิเสธ";
+"error_timeout" = "การเก็บข้อมูลใบหน้าหมดเวลา (ต้องมี 8 เฟิร์มติดต่อกันที่ถึงเกณฑ์)";
+"error_enrollment_missing" = "ยังไม่ได้ลงทะเบียนใบหน้า";
+"failure_no_enrollment" = "ยังไม่ได้ลงทะเบียนใบหน้า";
+"failure_camera_unavailable" = "กล้องที่เลือกใช้งานไม่ได้";
+"failure_camera_permission" = "ต้องมีสิทธิ์กล้อง";
+"failure_timeout" = "การจดจำใบหน้าหมดเวลา";
+"failure_liveness" = "ความคล้ายคลึงถึงเกณฑ์แล้ว แต่การตรวจการเคลื่อนไหวไม่ผ่าน โปรดหมุนศีรษะช้าๆ แล้วลองอีกครั้ง";

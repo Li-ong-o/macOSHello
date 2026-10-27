@@ -1,0 +1,14 @@
+/* Class = "NSTextFieldCell"; title = "macOSHello version #{version}"; ObjectID = "VLW-23-BX0"; */
+"VLW-23-BX0.title" = "macOSHello 버전 #{version}";
+
+/* Class = "NSWindow"; title = "About macOSHello"; ObjectID = "hgX-Z1-8qq"; */
+"hgX-Z1-8qq.title" = "macOSHello 정보";
+
+/* Class = "NSTextFieldCell"; title = "macOSHello - On-device face unlock"; ObjectID = "GN4-8z-o8I"; */
+"GN4-8z-o8I.title" = "macOSHello - 온디바이스 얼굴 잠금 해제";
+
+/* Class = "NSButtonCell"; title = "Fork Homepage"; ObjectID = "fPY-L3-Edh"; */
+"fPY-L3-Edh.title" = "프로젝트 홈페이지";
+
+/* Class = "NSButtonCell"; title = "Release Notes"; ObjectID = "WIg-Gy-UeI"; */
+"WIg-Gy-UeI.title" = "릴리스 노트";

@@ -1,0 +1,91 @@
+/* Menu */
+"menu_enroll_face" = "얼굴 등록...";
+"menu_verify_now" = "얼굴 인식 테스트 실행";
+"menu_registered_faces" = "등록된 얼굴";
+"menu_camera" = "카메라";
+"menu_similarity_threshold" = "유사도 임계값";
+"menu_liveness" = "생체 검출";
+"menu_auto_unlock" = "자동 얼굴 잠금 해제";
+"menu_trigger_mode" = "인식 트리거";
+"menu_set_password" = "비밀번호 설정...";
+"menu_launch_at_login" = "로그인 시 시작";
+"menu_lock_now" = "지금 화면 잠금";
+"menu_about" = "macOSHello 정보";
+"menu_quit" = "종료";
+"trigger_keyboard" = "키보드 또는 마우스 입력 시 인식(권장)";
+"trigger_lock_immediately" = "잠금 직후 인식";
+
+/* Status */
+"status_waiting_input" = "키보드 또는 마우스 입력 대기 중";
+"status_verifying" = "인식 중";
+"status_success_unlocking" = "일치, 잠금 해제 중";
+"status_success" = "일치";
+"status_failed_retry" = "불일치, 재시도 준비 중";
+"status_failed_3" = "3회 불일치";
+"status_failed" = "불일치";
+"status_timeout" = "인식 시간 초과";
+"status_missing_accessibility" = "접근성 권한 필요";
+"status_accessibility_ready" = "접근성 준비 완료";
+"status_password_missing" = "로그인 비밀번호가 설정되지 않았습니다";
+"status_entering_password" = "비밀번호 입력 중";
+"status_unlock_failed" = "입력 후에도 잠금이 해제되지 않았습니다";
+"status_lock_requested" = "화면 잠금 요청됨";
+"status_lock_failed" = "잠금 실패";
+
+/* Enrollment */
+"enroll_title" = "얼굴 등록";
+"enroll_message" = "카메라를 보고 천천히 고개를 돌려 주세요. 이 Mac에서 8개 샘플을 수집합니다.";
+"field_name" = "이름";
+"button_continue" = "계속";
+"button_cancel" = "취소";
+"button_delete" = "삭제";
+"button_save" = "저장";
+"button_ok" = "확인";
+"enroll_success_title" = "등록 완료";
+"enroll_success_message" = "%@의 얼굴 데이터를 저장했습니다.";
+"enroll_failed_title" = "등록 실패";
+"delete_all_title" = "등록된 얼굴을 모두 삭제할까요?";
+"delete_all_message" = "이 Mac에 저장된 모든 얼굴 특징 데이터를 삭제합니다.";
+"no_profiles" = "등록된 얼굴 없음";
+"profile_delete" = "%@(%@, 삭제)";
+"delete_all" = "모든 얼굴 삭제";
+
+/* Verification */
+"verify_success_title" = "인식 성공";
+"verify_success_message" = "%@의 유사도는 %.3f입니다.";
+"verify_failed_title" = "인식 실패";
+"detail_max_similarity" = ", 최고 유사도 %.3f";
+"preview_title" = "얼굴 인식 테스트";
+"preview_starting" = "카메라 시작 중...";
+"preview_retry" = "다시 인식";
+"preview_verifying" = "인식 중입니다. 카메라를 보고 천천히 고개를 돌려 주세요.";
+"preview_progress" = "실시간 유사도 %.3f / 임계값 %.2f, 연속 달성 %d/8 프레임";
+"preview_success" = "인식 성공: %@, 유사도 %.3f";
+
+/* Password and settings */
+"password_title" = "로그인 비밀번호 설정";
+"password_message" = "비밀번호는 이 Mac의 키체인에만 저장되며 현재 로그인 세션 잠금 해제에 사용됩니다.";
+"startup_unsupported_title" = "설정할 수 없음";
+"startup_unsupported_message" = "이 macOS 버전에서는 앱 내 로그인 시 시작 설정을 지원하지 않습니다.";
+"startup_failed_title" = "설정 실패";
+"lock_failed_message" = "시스템에서 오류 %d을(를) 반환했습니다.";
+"password_empty_title" = "빈 비밀번호";
+"password_empty_message" = "유효한 로그인 비밀번호를 입력하세요.";
+"password_saved_title" = "비밀번호 저장됨";
+"password_saved_message" = "비밀번호를 이 Mac의 키체인에 저장했습니다.";
+"password_save_failed_title" = "저장 실패";
+"keychain_error" = "키체인 쓰기 오류: %d";
+"password_not_set_title" = "비밀번호 미설정";
+"password_not_set_message" = "먼저 메뉴에서 로그인 비밀번호를 설정하세요.";
+
+/* Camera and errors */
+"no_cameras" = "사용 가능한 카메라 없음";
+"error_no_camera" = "사용 가능한 카메라가 없습니다.";
+"error_camera_permission_denied" = "카메라 권한이 거부되었습니다.";
+"error_timeout" = "얼굴 수집 시간이 초과되었습니다(임계값을 8프레임 연속 달성해야 합니다).";
+"error_enrollment_missing" = "등록된 얼굴이 없습니다.";
+"failure_no_enrollment" = "등록된 얼굴이 없습니다.";
+"failure_camera_unavailable" = "선택한 카메라를 사용할 수 없습니다.";
+"failure_camera_permission" = "카메라 권한이 필요합니다.";
+"failure_timeout" = "얼굴 인식 시간이 초과되었습니다.";
+"failure_liveness" = "유사도는 기준에 도달했지만 생체 동작 검사를 통과하지 못했습니다. 천천히 고개를 돌려 다시 시도하세요.";

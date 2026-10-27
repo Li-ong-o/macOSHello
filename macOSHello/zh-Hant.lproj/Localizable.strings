@@ -1,0 +1,91 @@
+/* Menu */
+"menu_enroll_face" = "註冊臉孔...";
+"menu_verify_now" = "立即臉孔辨識測試";
+"menu_registered_faces" = "已註冊臉孔";
+"menu_camera" = "攝影機";
+"menu_similarity_threshold" = "相似度閾值";
+"menu_liveness" = "活體偵測";
+"menu_auto_unlock" = "自動臉孔解鎖";
+"menu_trigger_mode" = "辨識觸發方式";
+"menu_set_password" = "設定密碼...";
+"menu_launch_at_login" = "開機時啟動";
+"menu_lock_now" = "立即鎖定螢幕";
+"menu_about" = "關於 macOSHello";
+"menu_quit" = "結束";
+"trigger_keyboard" = "鍵盤或滑鼠觸發（建議）";
+"trigger_lock_immediately" = "鎖定後立即辨識";
+
+/* Status */
+"status_waiting_input" = "等待鍵盤或滑鼠觸發";
+"status_verifying" = "辨識中";
+"status_success_unlocking" = "辨識成功，正在解鎖";
+"status_success" = "辨識成功";
+"status_failed_retry" = "辨識失敗，準備重試";
+"status_failed_3" = "辨識失敗 3 次";
+"status_failed" = "辨識失敗";
+"status_timeout" = "辨識逾時";
+"status_missing_accessibility" = "缺少輔助使用權限";
+"status_accessibility_ready" = "輔助使用已就緒";
+"status_password_missing" = "尚未設定登入密碼";
+"status_entering_password" = "正在輸入密碼";
+"status_unlock_failed" = "輸入後未解鎖";
+"status_lock_requested" = "已請求鎖定螢幕";
+"status_lock_failed" = "鎖定失敗";
+
+/* Enrollment */
+"enroll_title" = "註冊臉孔";
+"enroll_message" = "請看著攝影機並緩慢左右轉頭，系統會在本機收集 8 個樣本。";
+"field_name" = "姓名";
+"button_continue" = "繼續";
+"button_cancel" = "取消";
+"button_delete" = "刪除";
+"button_save" = "儲存";
+"button_ok" = "好";
+"enroll_success_title" = "註冊成功";
+"enroll_success_message" = "已儲存 %@ 的臉孔資料。";
+"enroll_failed_title" = "註冊失敗";
+"delete_all_title" = "刪除所有臉孔註冊紀錄？";
+"delete_all_message" = "將刪除本機保存的所有臉孔特徵資料。";
+"no_profiles" = "尚無註冊臉孔";
+"profile_delete" = "%@（%@，刪除）";
+"delete_all" = "刪除所有臉孔";
+
+/* Verification */
+"verify_success_title" = "辨識成功";
+"verify_success_message" = "%@ 的相似度為 %.3f。";
+"verify_failed_title" = "辨識失敗";
+"detail_max_similarity" = "，最高相似度 %.3f";
+"preview_title" = "立即辨識測試";
+"preview_starting" = "正在啟動攝影機...";
+"preview_retry" = "重新辨識";
+"preview_verifying" = "正在辨識，請看著攝影機並緩慢轉頭";
+"preview_progress" = "即時相似度 %.3f / 閾值 %.2f，連續達標 %d/8 幀";
+"preview_success" = "辨識成功：%@，相似度 %.3f";
+
+/* Password and settings */
+"password_title" = "設定登入密碼";
+"password_message" = "密碼只會保存在本機鑰匙圈，用於解鎖目前登入階段。";
+"startup_unsupported_title" = "無法設定";
+"startup_unsupported_message" = "此系統版本不支援在應用程式內設定開機啟動。";
+"startup_failed_title" = "設定失敗";
+"lock_failed_message" = "系統回傳錯誤 %d。";
+"password_empty_title" = "密碼為空";
+"password_empty_message" = "請輸入有效的登入密碼。";
+"password_saved_title" = "已儲存密碼";
+"password_saved_message" = "密碼已保存到本機鑰匙圈。";
+"password_save_failed_title" = "保存失敗";
+"keychain_error" = "鑰匙圈寫入錯誤：%d";
+"password_not_set_title" = "尚未設定密碼";
+"password_not_set_message" = "請先在選單中設定登入密碼。";
+
+/* Camera and errors */
+"no_cameras" = "沒有可用攝影機";
+"error_no_camera" = "沒有可用的攝影機。";
+"error_camera_permission_denied" = "攝影機權限被拒絕。";
+"error_timeout" = "臉孔收集逾時（需要連續 8 幀達到閾值）。";
+"error_enrollment_missing" = "尚未註冊臉孔。";
+"failure_no_enrollment" = "尚未註冊臉孔。";
+"failure_camera_unavailable" = "選定的攝影機無法使用。";
+"failure_camera_permission" = "需要攝影機權限。";
+"failure_timeout" = "臉孔辨識逾時。";
+"failure_liveness" = "相似度已達標，但活體動作未通過。請緩慢轉頭後再試。";

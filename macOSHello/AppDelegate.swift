@@ -9,8 +9,8 @@ private enum FaceUnlockTriggerMode: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .keyboard: return "键盘或鼠标触发（推荐）"
-        case .lockImmediately: return "锁屏后立即识别"
+        case .keyboard: return L("trigger_keyboard")
+        case .lockImmediately: return L("trigger_lock_immediately")
         }
     }
 }
@@ -94,40 +94,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let menu = NSMenu()
         menu.delegate = self
 
-        menu.addItem(withTitle: "注册人脸...", action: #selector(enrollFace), keyEquivalent: "")
-        menu.addItem(withTitle: "立即人脸识别测试", action: #selector(verifyFaceNow), keyEquivalent: "")
+        menu.addItem(withTitle: L("menu_enroll_face"), action: #selector(enrollFace), keyEquivalent: "")
+        menu.addItem(withTitle: L("menu_verify_now"), action: #selector(verifyFaceNow), keyEquivalent: "")
         menu.addItem(.separator())
 
-        let profilesItem = menu.addItem(withTitle: "已注册人脸", action: nil, keyEquivalent: "")
+        let profilesItem = menu.addItem(withTitle: L("menu_registered_faces"), action: nil, keyEquivalent: "")
         profilesItem.submenu = faceProfilesMenu
         rebuildFaceProfilesMenu()
 
-        let cameraItem = menu.addItem(withTitle: "摄像头", action: nil, keyEquivalent: "")
+        let cameraItem = menu.addItem(withTitle: L("menu_camera"), action: nil, keyEquivalent: "")
         cameraItem.submenu = cameraMenu
         cameraMenu.delegate = self
         rebuildCameraMenu()
 
-        let thresholdItem = menu.addItem(withTitle: "相似度阈值", action: nil, keyEquivalent: "")
+        let thresholdItem = menu.addItem(withTitle: L("menu_similarity_threshold"), action: nil, keyEquivalent: "")
         thresholdItem.submenu = thresholdMenu
         rebuildThresholdMenu()
 
-        let livenessItem = menu.addItem(withTitle: "活体检测", action: #selector(toggleFaceLiveness), keyEquivalent: "")
+        let livenessItem = menu.addItem(withTitle: L("menu_liveness"), action: #selector(toggleFaceLiveness), keyEquivalent: "")
         livenessItem.state = faceUnlock.livenessEnabled ? .on : .off
-        let autoItem = menu.addItem(withTitle: "自动人脸解锁", action: #selector(toggleAutoUnlock), keyEquivalent: "")
+        let autoItem = menu.addItem(withTitle: L("menu_auto_unlock"), action: #selector(toggleAutoUnlock), keyEquivalent: "")
         autoItem.state = autoUnlockEnabled ? .on : .off
-        let triggerItem = menu.addItem(withTitle: "识别触发方式", action: nil, keyEquivalent: "")
+        let triggerItem = menu.addItem(withTitle: L("menu_trigger_mode"), action: nil, keyEquivalent: "")
         triggerItem.submenu = triggerModeMenu
         rebuildTriggerModeMenu()
 
         menu.addItem(.separator())
-        let passwordItem = menu.addItem(withTitle: passwordConfigured ? "设置密码..." : "设置密码...", action: #selector(setPassword), keyEquivalent: "")
+        let passwordItem = menu.addItem(withTitle: L("menu_set_password"), action: #selector(setPassword), keyEquivalent: "")
         passwordItem.state = passwordConfigured ? .on : .off
-        let startupItem = menu.addItem(withTitle: "开机启动", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        let startupItem = menu.addItem(withTitle: L("menu_launch_at_login"), action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         startupItem.state = launchAtLoginEnabled ? .on : .off
-        menu.addItem(withTitle: "立即锁定屏幕", action: #selector(lockScreenNow), keyEquivalent: "")
-        menu.addItem(withTitle: "关于 macOSHello", action: #selector(showAbout), keyEquivalent: "")
+        menu.addItem(withTitle: L("menu_lock_now"), action: #selector(lockScreenNow), keyEquivalent: "")
+        menu.addItem(withTitle: L("menu_about"), action: #selector(showAbout), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: L("menu_quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         return menu
     }
 
@@ -287,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         lastObservedKeyboardEventAt = Self.secondsSinceLastInputEvent
         keyboardTriggerArmedAt = Date().timeIntervalSinceReferenceDate
         logger.info("已锁定屏幕，等待键盘或鼠标触发人脸识别")
-        updateStatus("等待键盘或鼠标触发")
+        updateStatus(L("status_waiting_input"))
     }
 
     private func pollKeyboardTrigger() {
@@ -352,7 +352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         guard !faceOperationActive else { return }
         if requireLockedScreen { guard isScreenLocked() else { return } }
         faceOperationActive = true
-        updateStatus("识别中")
+        updateStatus(L("status_verifying"))
         logger.info("开始人脸识别，要求锁屏：\(requireLockedScreen, privacy: .public)")
 
         Task { [weak self] in
@@ -369,35 +369,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     self.resetFaceUnlockAttempts()
                     self.suppressFaceUnlockUntil = Date().addingTimeInterval(12)
                     if requireLockedScreen {
-                        self.updateStatus("识别成功，正在解锁")
+                        self.updateStatus(L("status_success_unlocking"))
                         self.tryUnlockScreen()
                     } else {
-                        self.updateStatus("识别成功")
+                        self.updateStatus(L("status_success"))
                     }
                     if showResult {
-                        self.showInfo("识别成功", String(format: "%@ 的相似度 %.3f。", profile.name, similarity))
+                        self.showInfo(L("verify_success_title"), LF("verify_success_message", profile.name, similarity))
                     }
                 case .failure(let reason, let similarity, _):
-                    let detail = similarity.map { String(format: "，最高相似度 %.3f", $0) } ?? ""
+                    let detail = similarity.map { LF("detail_max_similarity", $0) } ?? ""
                     self.continuousFaceUnlockAttemptCount += 1
                     self.logger.error(
                         "人脸识别失败（第 \(self.continuousFaceUnlockAttemptCount)/\(self.faceUnlockMaxAttempts) 次）：\(reason.message, privacy: .public)\(detail, privacy: .public)"
                     )
                     if requireLockedScreen, self.isScreenLocked() {
                         if self.continuousFaceUnlockAttemptCount < self.faceUnlockMaxAttempts {
-                            self.updateStatus("识别失败，准备重试")
+                            self.updateStatus(L("status_failed_retry"))
                             self.scheduleContinuousFaceUnlock(after: 1)
                         } else {
                             self.stopContinuousFaceUnlock()
                             self.faceUnlock.stopCurrentOperation()
-                            self.updateStatus("识别失败 3 次")
+                            self.updateStatus(L("status_failed_3"))
                             self.logger.error("人脸识别连续失败 3 次，已停止摄像头")
                         }
                     } else {
-                        self.updateStatus("识别失败")
+                        self.updateStatus(L("status_failed"))
                     }
                     if showResult {
-                        self.showInfo("识别失败", reason.message + detail)
+                        self.showInfo(L("verify_failed_title"), reason.message + detail)
                     }
                 }
             }
@@ -487,7 +487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         guard Date() <= continuousFaceUnlockUntil else {
             continuousFaceUnlockEnabled = false
             logger.info("持续人脸识别窗口结束")
-            updateStatus("识别超时")
+            updateStatus(L("status_timeout"))
             return
         }
         guard !systemSleep, !displaySleep else { return }
@@ -498,7 +498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         guard !systemSleep, !displaySleep else { return }
         guard AXIsProcessTrusted() else {
             logger.error("自动解锁停止：缺少辅助功能权限")
-            updateStatus("缺少辅助功能权限")
+            updateStatus(L("status_missing_accessibility"))
             startAccessibilityPermissionRecovery()
             return
         }
@@ -515,11 +515,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             guard let self, self.isScreenLocked() else { return }
             guard let password = self.fetchPassword(warn: false) else {
                 self.logger.error("自动解锁停止：尚未设置登录密码")
-                self.updateStatus("尚未设置登录密码")
+                self.updateStatus(L("status_password_missing"))
                 return
             }
             self.unlockedAt = Date().timeIntervalSince1970
-            self.updateStatus("正在输入密码")
+            self.updateStatus(L("status_entering_password"))
             self.logger.info("正在向登录窗口输入密码")
             self.fakeKeyStrokes(password)
 
@@ -529,7 +529,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self.postUnlockRetryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
                 guard let self, self.isScreenLocked() else { return }
                 self.logger.error("密码已输入但屏幕仍未解锁，停止重复输入")
-                self.updateStatus("输入后未解锁")
+                self.updateStatus(L("status_unlock_failed"))
             }
         }
     }
@@ -605,12 +605,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @objc private func enrollFace() {
         let alert = NSAlert()
-        alert.messageText = "注册人脸"
-        alert.informativeText = "看摄像头并缓慢左右转头，系统会在本机采集 8 个样本。"
-        alert.addButton(withTitle: "继续")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = L("enroll_title")
+        alert.informativeText = L("enroll_message")
+        alert.addButton(withTitle: L("button_continue"))
+        alert.addButton(withTitle: L("button_cancel"))
         let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        nameField.placeholderString = "姓名"
+        nameField.placeholderString = L("field_name")
         alert.accessoryView = nameField
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -623,13 +623,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 let profile = try await self?.faceUnlock.enroll(name: name, timeout: 30)
                 await MainActor.run { [weak self] in
                     self?.faceOperationActive = false
-                    self?.showInfo("注册成功", "已保存 \(profile?.name ?? name) 的人脸数据。")
+                    self?.showInfo(L("enroll_success_title"), LF("enroll_success_message", profile?.name ?? name))
                     self?.rebuildFaceProfilesMenu()
                 }
             } catch {
                 await MainActor.run { [weak self] in
                     self?.faceOperationActive = false
-                    self?.showInfo("注册失败", error.localizedDescription)
+                    self?.showInfo(L("enroll_failed_title"), error.localizedDescription)
                 }
             }
         }
@@ -648,10 +648,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @objc private func deleteAllFaces() {
         let alert = NSAlert()
-        alert.messageText = "删除所有人脸注册记录？"
-        alert.informativeText = "将删除本机保存的所有人脸特征数据。"
-        alert.addButton(withTitle: "删除")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = L("delete_all_title")
+        alert.informativeText = L("delete_all_message")
+        alert.addButton(withTitle: L("button_delete"))
+        alert.addButton(withTitle: L("button_cancel"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         faceUnlock.deleteAll()
         rebuildFaceProfilesMenu()
@@ -716,10 +716,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @objc private func setPassword() {
         let alert = NSAlert()
-        alert.messageText = "设置登录密码"
-        alert.informativeText = "密码仅保存在本机钥匙串中，用于解锁当前已登录会话。"
-        alert.addButton(withTitle: "保存")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = L("password_title")
+        alert.informativeText = L("password_message")
+        alert.addButton(withTitle: L("button_save"))
+        alert.addButton(withTitle: L("button_cancel"))
         let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         alert.accessoryView = field
         NSApp.activate(ignoringOtherApps: true)
@@ -729,7 +729,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @objc private func toggleLaunchAtLogin() {
         guard #available(macOS 13.0, *) else {
-            showInfo("无法设置", "此系统版本不支持应用内设置开机启动。")
+            showInfo(L("startup_unsupported_title"), L("startup_unsupported_message"))
             return
         }
         do {
@@ -742,7 +742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 if item.action == #selector(toggleLaunchAtLogin) { item.state = self.launchAtLoginEnabled ? .on : .off }
             }
         } catch {
-            showInfo("设置失败", error.localizedDescription)
+            showInfo(L("startup_failed_title"), error.localizedDescription)
         }
     }
 
@@ -751,11 +751,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let result = SACLockScreenImmediate()
         if result == noErr {
             logger.info("已请求锁定屏幕")
-            updateStatus("已请求锁定屏幕")
+            updateStatus(L("status_lock_requested"))
         } else {
             logger.error("锁屏请求失败：\(result, privacy: .public)")
-            updateStatus("锁屏失败")
-            showInfo("锁屏失败", "系统返回错误 \(result)。")
+            updateStatus(L("status_lock_failed"))
+            showInfo(L("status_lock_failed"), LF("lock_failed_message", result))
         }
     }
 
@@ -767,17 +767,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         faceProfilesMenu.removeAllItems()
         let profiles = faceUnlock.profiles
         if profiles.isEmpty {
-            let item = faceProfilesMenu.addItem(withTitle: "暂无注册人脸", action: nil, keyEquivalent: "")
+            let item = faceProfilesMenu.addItem(withTitle: L("no_profiles"), action: nil, keyEquivalent: "")
             item.isEnabled = false
         } else {
             for profile in profiles {
                 let date = DateFormatter.localizedString(from: profile.createdAt, dateStyle: .short, timeStyle: .none)
-                let item = faceProfilesMenu.addItem(withTitle: "\(profile.name)（\(date)，删除）", action: #selector(removeFaceProfile), keyEquivalent: "")
+                let item = faceProfilesMenu.addItem(withTitle: LF("profile_delete", profile.name, date), action: #selector(removeFaceProfile), keyEquivalent: "")
                 item.representedObject = profile.id.uuidString
             }
         }
         faceProfilesMenu.addItem(.separator())
-        let deleteItem = faceProfilesMenu.addItem(withTitle: "删除所有人脸", action: #selector(deleteAllFaces), keyEquivalent: "")
+        let deleteItem = faceProfilesMenu.addItem(withTitle: L("delete_all"), action: #selector(deleteAllFaces), keyEquivalent: "")
         deleteItem.isEnabled = !profiles.isEmpty
     }
 
@@ -794,7 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         cameraMenu.removeAllItems()
         let cameras = FaceCamera.availableCameras()
         guard !cameras.isEmpty else {
-            let item = cameraMenu.addItem(withTitle: "没有可用摄像头", action: nil, keyEquivalent: "")
+            let item = cameraMenu.addItem(withTitle: L("no_cameras"), action: nil, keyEquivalent: "")
             item.isEnabled = false
             return
         }
@@ -818,7 +818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: L("button_ok"))
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
@@ -828,7 +828,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let trusted = AXIsProcessTrustedWithOptions(options)
         logger.info("辅助功能初始状态：\(trusted)")
         guard !trusted else { return }
-        updateStatus("缺少辅助功能权限")
+        updateStatus(L("status_missing_accessibility"))
         startAccessibilityPermissionRecovery()
     }
 
@@ -838,7 +838,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             guard let self else { return }
             if AXIsProcessTrusted() {
                 self.logger.info("辅助功能权限已恢复")
-                self.updateStatus("辅助功能已就绪")
+                self.updateStatus(L("status_accessibility_ready"))
                 self.accessibilityRetryTimer?.invalidate()
                 self.accessibilityRetryTimer = nil
             }
@@ -850,7 +850,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func savePassword(_ password: String) {
         guard !password.isEmpty else {
-            showInfo("密码为空", "请输入有效的登录密码。")
+            showInfo(L("password_empty_title"), L("password_empty_message"))
             return
         }
         let query: [String: Any] = [
@@ -863,7 +863,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         attributes[kSecValueData as String] = password.data(using: .utf8) ?? Data()
             attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(attributes as CFDictionary, nil)
-        showInfo(status == errSecSuccess ? "已保存密码" : "保存失败", status == errSecSuccess ? "密码已保存到本机钥匙串。" : "钥匙串写入错误：\(status)")
+        showInfo(
+            status == errSecSuccess ? L("password_saved_title") : L("password_save_failed_title"),
+            status == errSecSuccess ? L("password_saved_message") : LF("keychain_error", status)
+        )
     }
 
     private func fetchPassword(warn: Bool) -> String? {
@@ -877,7 +880,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
               let data = item as? Data,
               let password = String(data: data, encoding: .utf8) else {
-            if warn { showInfo("尚未设置密码", "请先在菜单中设置登录密码。") }
+            if warn { showInfo(L("password_not_set_title"), L("password_not_set_message")) }
             return nil
         }
         return password

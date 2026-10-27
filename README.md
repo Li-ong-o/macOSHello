@@ -69,6 +69,22 @@ macOSHello 没有使用第三方库，全部依赖 macOS 系统框架：
 
 人脸识别的核心是 `VNGenerateImageFeaturePrintRequest` 生成的本地特征向量，以及余弦相似度比对。项目不依赖 OpenCV、Python 或云端模型。
 
+## 多语言支持
+
+macOSHello 的界面语言跟随 macOS 系统语言自动切换，不需要在应用内手动选择。当前支持：
+
+| 语言 | 代码 |
+| --- | --- |
+| 简体中文 | `zh-Hans` |
+| 繁体中文 | `zh-Hant` |
+| English | `en` |
+| 日本語 | `ja` |
+| 한국어 | `ko` |
+| Tiếng Việt | `vi` |
+| ไทย | `th` |
+
+如果系统语言不在上表中，应用会显示英文。菜单栏、设置项、注册与识别弹窗、预览窗口、错误提示和摄像头权限说明均已本地化。欢迎通过 Pull Request 补充或修正 `macOSHello/*.lproj/Localizable.strings` 中的翻译；新增语言时需要同时提供 `Localizable.strings` 和 `InfoPlist.strings`，并在 Xcode 工程中注册对应 `.lproj`。
+
 ## 使用
 
 1. 打开 `macOSHello.xcodeproj`，运行 `macOSHello` target。
@@ -108,6 +124,10 @@ During enrollment, the app uses `VNDetectFaceRectanglesRequest`, `VNDetectFaceLa
 After a successful match, macOSHello reads the password from the local Keychain and submits it to the login window using the Accessibility permission. It can unlock the lock screen only when the current user session has already been authenticated; it cannot unlock the FileVault first-login screen after a reboot.
 
 Face detection stops while the display is off or the system is asleep. All camera frames and face feature vectors are processed on-device. The liveness check is based on yaw and pitch variation and is not equivalent to Face ID's 3D depth-based liveness detection.
+
+### Localization
+
+The app follows the macOS system language automatically. Supported languages are Simplified Chinese (`zh-Hans`), Traditional Chinese (`zh-Hant`), English (`en`), Japanese (`ja`), Korean (`ko`), Vietnamese (`vi`), and Thai (`th`). If the system language is not supported, English is used as the fallback. Menu labels, enrollment and verification dialogs, preview states, error messages, and the camera permission description are localized. Contributions to the files under `macOSHello/*.lproj` are welcome.
 
 ## 致谢
 

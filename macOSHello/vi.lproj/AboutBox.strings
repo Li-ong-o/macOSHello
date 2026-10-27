@@ -1,0 +1,14 @@
+/* Class = "NSTextFieldCell"; title = "macOSHello version #{version}"; ObjectID = "VLW-23-BX0"; */
+"VLW-23-BX0.title" = "Phiên bản macOSHello #{version}";
+
+/* Class = "NSWindow"; title = "About macOSHello"; ObjectID = "hgX-Z1-8qq"; */
+"hgX-Z1-8qq.title" = "Giới thiệu macOSHello";
+
+/* Class = "NSTextFieldCell"; title = "macOSHello - On-device face unlock"; ObjectID = "GN4-8z-o8I"; */
+"GN4-8z-o8I.title" = "macOSHello - Mở khóa khuôn mặt trên máy";
+
+/* Class = "NSButtonCell"; title = "Fork Homepage"; ObjectID = "fPY-L3-Edh"; */
+"fPY-L3-Edh.title" = "Trang chủ dự án";
+
+/* Class = "NSButtonCell"; title = "Release Notes"; ObjectID = "WIg-Gy-UeI"; */
+"WIg-Gy-UeI.title" = "Ghi chú phát hành";
