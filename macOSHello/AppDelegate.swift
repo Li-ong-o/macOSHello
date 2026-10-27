@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let conservativeWakeUnlockDelay: TimeInterval = 1.5
     private let faceUnlockActiveWindow: TimeInterval = 30
     private let faceUnlockMaxAttempts = 3
-    private let keyboardTriggerPollInterval: TimeInterval = 0.25
+    private let keyboardTriggerPollInterval: TimeInterval = 0.1
     private let keyboardTriggerDebounce: TimeInterval = 1
     private let keyboardTriggerArmingDelay: TimeInterval = 0.75
     private let logger = Logger(subsystem: "com.tonydong.macOSHello", category: "face-unlock")
@@ -309,7 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         guard Date().timeIntervalSinceReferenceDate - lastKeyboardTriggerAt >= keyboardTriggerDebounce else { return }
 
         lastKeyboardTriggerAt = Date().timeIntervalSinceReferenceDate
-        logger.info("检测到键盘活动，触发人脸识别")
+        logger.info("检测到键盘或鼠标活动，触发人脸识别")
         startContinuousFaceUnlock()
     }
 
@@ -318,14 +318,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             .keyDown,
             .keyUp,
             .mouseMoved,
+            .leftMouseDown,
+            .leftMouseUp,
             .leftMouseDragged,
+            .rightMouseDown,
+            .rightMouseUp,
             .rightMouseDragged,
-            .otherMouseDragged
+            .otherMouseDown,
+            .otherMouseUp,
+            .otherMouseDragged,
+            .scrollWheel
         ]
-        let seconds = eventTypes
-            .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }
+        let states: [CGEventSourceStateID] = [.hidSystemState, .combinedSessionState]
+        return eventTypes
+            .flatMap { eventType in
+                states.map { state in
+                    CGEventSource.secondsSinceLastEventType(state, eventType: eventType)
+                }
+            }
             .min() ?? .infinity
-        return seconds
     }
 
     private func stopCameraWhenDisplayIsOff() {
@@ -512,12 +523,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self.logger.info("正在向登录窗口输入密码")
             self.fakeKeyStrokes(password)
 
-            if retryCount < self.wakeUnlockMaxRetries {
-                self.postUnlockRetryTimer?.invalidate()
-                self.postUnlockRetryTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
-                    guard let self, self.isScreenLocked() else { return }
-                    self.scheduleWakeUnlock(after: self.wakeUnlockRetryDelay, retryCount: retryCount + 1)
-                }
+            // Typing again before macOS reports the screen as unlocked can append the password
+            // to the login field and create multiple failed attempts.
+            self.postUnlockRetryTimer?.invalidate()
+            self.postUnlockRetryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                guard let self, self.isScreenLocked() else { return }
+                self.logger.error("密码已输入但屏幕仍未解锁，停止重复输入")
+                self.updateStatus("输入后未解锁")
             }
         }
     }
@@ -538,6 +550,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func fakeKeyStrokes(_ string: String) {
         let source = CGEventSource(stateID: .hidSystemState)
+        Self.postKeyEvent(source: source, virtualKey: 0, keyDown: true, flags: .maskCommand)
+        Self.postKeyEvent(source: source, virtualKey: 0, keyDown: false, flags: .maskCommand)
+
         let characters = Array(string.utf16)
         let chunkLength = 20
         var start = 0
@@ -553,8 +568,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             start = end
         }
 
-        CGEvent(keyboardEventSource: source, virtualKey: 52, keyDown: true)?.post(tap: .cghidEventTap)
-        CGEvent(keyboardEventSource: source, virtualKey: 52, keyDown: false)?.post(tap: .cghidEventTap)
+        Self.postKeyEvent(source: source, virtualKey: 52, keyDown: true, flags: [])
+        Self.postKeyEvent(source: source, virtualKey: 52, keyDown: false, flags: [])
+    }
+
+    private static func postKeyEvent(
+        source: CGEventSource?,
+        virtualKey: CGKeyCode,
+        keyDown: Bool,
+        flags: CGEventFlags
+    ) {
+        let event = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: keyDown)
+        event?.flags = flags
+        event?.post(tap: .cghidEventTap)
     }
 
     private func isScreenLocked() -> Bool {
