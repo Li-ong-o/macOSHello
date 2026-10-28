@@ -53,6 +53,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var keyboardTriggerTimer: Timer?
     private var accessibilityRetryTimer: Timer?
     private var previewWindowController: FacePreviewWindowController?
+    private var physicalInputLockUntil = Date.distantPast
+    private var inputLockReleaseTimer: Timer?
+    private var inputLockTap: CFMachPort?
+    private var inputLockRunLoopSource: CFRunLoopSource?
+    private var isEnteringPassword = false
+    private var passwordAttemptCount = 0
+    private var passwordVerifyTimer: Timer?
 
     private let wakeUnlockRetryDelay: TimeInterval = 0.5
     private let wakeUnlockMaxRetries = 8
@@ -63,6 +70,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let keyboardTriggerPollInterval: TimeInterval = 0.1
     private let keyboardTriggerDebounce: TimeInterval = 1
     private let keyboardTriggerArmingDelay: TimeInterval = 0.75
+    private static let syntheticInputMarker: Int64 = 0x4D_41_43_48
+    private static let physicalInputLockDuration: TimeInterval = 2
+    private static let passwordMaxAttempts = 3
+    private static let passwordVerifyDelay: TimeInterval = 1.5
     private let logger = Logger(subsystem: "com.tonydong.macOSHello", category: "face-unlock")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -77,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     func applicationWillTerminate(_ notification: Notification) {
         accessibilityRetryTimer?.invalidate()
         keyboardTriggerTimer?.invalidate()
+        unlockPhysicalInput()
         systemObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         systemObservers.forEach(NotificationCenter.default.removeObserver)
     }
@@ -521,16 +533,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self.unlockedAt = Date().timeIntervalSince1970
             self.updateStatus(L("status_entering_password"))
             self.logger.info("正在向登录窗口输入密码")
-            self.fakeKeyStrokes(password)
-
-            // Typing again before macOS reports the screen as unlocked can append the password
-            // to the login field and create multiple failed attempts.
-            self.postUnlockRetryTimer?.invalidate()
-            self.postUnlockRetryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-                guard let self, self.isScreenLocked() else { return }
-                self.logger.error("密码已输入但屏幕仍未解锁，停止重复输入")
-                self.updateStatus(L("status_unlock_failed"))
-            }
+            self.submitPassword(password)
         }
     }
 
@@ -546,13 +549,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         wakeUnlockTimer = nil
         postUnlockRetryTimer?.invalidate()
         postUnlockRetryTimer = nil
+        passwordVerifyTimer?.invalidate()
+        passwordVerifyTimer = nil
     }
 
-    private func fakeKeyStrokes(_ string: String) {
-        let source = CGEventSource(stateID: .hidSystemState)
-        Self.postKeyEvent(source: source, virtualKey: 0, keyDown: true, flags: .maskCommand)
-        Self.postKeyEvent(source: source, virtualKey: 0, keyDown: false, flags: .maskCommand)
+    /// Types the password once, then verifies whether the screen really unlocked. If the screen is
+    /// still locked (e.g. a stray keystroke slipped in, or the field was not empty) the whole
+    /// select-all / type / return sequence is repeated, which also clears any junk first.
+    private func submitPassword(_ password: String) {
+        passwordAttemptCount = 1
+        guard enterPasswordSafely(password) else { return }
+        schedulePasswordVerification(password)
+    }
 
+    private func schedulePasswordVerification(_ password: String) {
+        passwordVerifyTimer?.invalidate()
+        let timer = Timer(timeInterval: Self.passwordVerifyDelay, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            guard self.isScreenLocked() else {
+                self.logger.info("已确认解锁成功")
+                return
+            }
+            guard self.passwordAttemptCount < Self.passwordMaxAttempts else {
+                self.logger.error("连续输入 \(Self.passwordMaxAttempts) 次密码后仍未解锁，停止尝试")
+                self.updateStatus(L("status_unlock_failed"))
+                return
+            }
+            self.passwordAttemptCount += 1
+            self.logger.info("屏幕仍未解锁，正在第 \(self.passwordAttemptCount) 次重试输入密码")
+            if self.enterPasswordSafely(password) {
+                self.schedulePasswordVerification(password)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        passwordVerifyTimer = timer
+    }
+
+    @discardableResult
+    private func enterPasswordSafely(_ password: String) -> Bool {
+        guard !isEnteringPassword else {
+            logger.info("已在进行自动输入，忽略重复的解锁请求")
+            return false
+        }
+
+        // The physical keyboard and mouse buttons are swallowed from this point on, so nothing the
+        // user presses can reach (or append to) the login password field. Our own synthetic events
+        // carry a marker that the event tap lets through.
+        guard lockPhysicalInput(for: Self.physicalInputLockDuration) else {
+            logger.error("无法锁定物理输入，已取消本次自动输入密码")
+            updateStatus(L("status_unlock_failed"))
+            return false
+        }
+
+        isEnteringPassword = true
+        let source = CGEventSource(stateID: .hidSystemState)
+
+        // 1. Command-A selects whatever is already in the field (stray keystrokes typed before the
+        //    lock), a following Delete guarantees the field ends up empty either way.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak self] in
+            guard let self else { return }
+            Self.postSelectAll(source: source)
+
+            // 2. Type the password.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                guard let self else { return }
+                self.postPasswordText(password, source: source)
+
+                // 3. Press Return to submit.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                    guard let self else { return }
+                    Self.postKeyEvent(source: source, virtualKey: 36, keyDown: true, flags: [])
+                    Self.postKeyEvent(source: source, virtualKey: 36, keyDown: false, flags: [])
+                    self.logger.info("已发送全选、密码与回车")
+
+                    // Release the input lock as soon as the sequence is done; the hard timeout in
+                    // lockPhysicalInput(for:) stays as a backstop.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) { [weak self] in
+                        self?.unlockPhysicalInput()
+                        self?.isEnteringPassword = false
+                    }
+                }
+            }
+        }
+        return true
+    }
+
+    private static func postSelectAll(source: CGEventSource?) {
+        postKeyEvent(source: source, virtualKey: 0, keyDown: true, flags: .maskCommand)   // A
+        postKeyEvent(source: source, virtualKey: 0, keyDown: false, flags: .maskCommand)
+        // A burst of Delete also empties the field in case the login window ignores Command-A
+        // (extra deletes on an already empty field are no-ops).
+        for _ in 0..<24 {
+            postKeyEvent(source: source, virtualKey: 51, keyDown: true, flags: [])        // Delete
+            postKeyEvent(source: source, virtualKey: 51, keyDown: false, flags: [])
+        }
+    }
+
+    private func postPasswordText(_ string: String, source: CGEventSource?) {
         let characters = Array(string.utf16)
         let chunkLength = 20
         var start = 0
@@ -562,14 +655,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             chunk.withUnsafeBufferPointer { buffer in
                 let event = CGEvent(keyboardEventSource: source, virtualKey: 49, keyDown: true)
                 event?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: buffer.baseAddress)
+                event?.flags = []
+                event?.setIntegerValueField(.eventSourceUserData, value: Self.syntheticInputMarker)
                 event?.post(tap: .cghidEventTap)
-                CGEvent(keyboardEventSource: source, virtualKey: 49, keyDown: false)?.post(tap: .cghidEventTap)
+                let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 49, keyDown: false)
+                keyUp?.flags = []
+                keyUp?.setIntegerValueField(.eventSourceUserData, value: Self.syntheticInputMarker)
+                keyUp?.post(tap: .cghidEventTap)
             }
             start = end
         }
-
-        Self.postKeyEvent(source: source, virtualKey: 52, keyDown: true, flags: [])
-        Self.postKeyEvent(source: source, virtualKey: 52, keyDown: false, flags: [])
     }
 
     private static func postKeyEvent(
@@ -580,7 +675,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     ) {
         let event = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: keyDown)
         event?.flags = flags
+        event?.setIntegerValueField(.eventSourceUserData, value: syntheticInputMarker)
         event?.post(tap: .cghidEventTap)
+    }
+
+    @discardableResult
+    private func lockPhysicalInput(for duration: TimeInterval) -> Bool {
+        if inputLockTap == nil, !createInputLockTap() {
+            return false
+        }
+        guard let tap = inputLockTap else { return false }
+
+        // Deadline first, then enable: a physical key pressed in between is only discarded once the
+        // tap is live, and the deadline is already valid by then.
+        physicalInputLockUntil = Date().addingTimeInterval(duration)
+        CGEvent.tapEnable(tap: tap, enable: true)
+
+        inputLockReleaseTimer?.invalidate()
+        let timer = Timer(timeInterval: duration, repeats: false) { [weak self] _ in
+            self?.unlockPhysicalInput()
+        }
+        // .common so the backstop also fires while a modal panel or menu tracking loop is running.
+        RunLoop.main.add(timer, forMode: .common)
+        inputLockReleaseTimer = timer
+
+        logger.info("已临时锁定物理键盘和鼠标点击输入")
+        return true
+    }
+
+    private func createInputLockTap() -> Bool {
+        let mask: CGEventMask =
+            (CGEventMask(1) << CGEventType.keyDown.rawValue) |
+            (CGEventMask(1) << CGEventType.keyUp.rawValue) |
+            (CGEventMask(1) << CGEventType.flagsChanged.rawValue) |
+            (CGEventMask(1) << CGEventType.leftMouseDown.rawValue) |
+            (CGEventMask(1) << CGEventType.leftMouseUp.rawValue) |
+            (CGEventMask(1) << CGEventType.rightMouseDown.rawValue) |
+            (CGEventMask(1) << CGEventType.rightMouseUp.rawValue) |
+            (CGEventMask(1) << CGEventType.otherMouseDown.rawValue) |
+            (CGEventMask(1) << CGEventType.otherMouseUp.rawValue) |
+            (CGEventMask(1) << CGEventType.scrollWheel.rawValue)
+
+        // .cghidEventTap also covers the login window session, which a session-level tap may miss.
+        guard let tap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: Self.inputLockCallback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            logger.error("创建输入拦截器失败：缺少辅助功能权限")
+            return false
+        }
+
+        let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        inputLockTap = tap
+        inputLockRunLoopSource = runLoopSource
+        return true
+    }
+
+    private func unlockPhysicalInput() {
+        physicalInputLockUntil = .distantPast
+        isEnteringPassword = false
+        inputLockReleaseTimer?.invalidate()
+        inputLockReleaseTimer = nil
+        if let inputLockTap {
+            CGEvent.tapEnable(tap: inputLockTap, enable: false)
+        }
+    }
+
+    private static let inputLockCallback: CGEventTapCallBack = { _, type, event, userInfo in
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let userInfo {
+                let delegate = Unmanaged<AppDelegate>.fromOpaque(userInfo).takeUnretainedValue()
+                // Only re-arm while the lock is still meant to be active.
+                if Date() < delegate.physicalInputLockUntil, let tap = delegate.inputLockTap {
+                    if type == .tapDisabledByUserInput {
+                        // The login password field turns on Secure Event Input, which the system
+                        // uses to switch off every third-party event tap. Physical keystrokes can
+                        // then no longer be swallowed; the password re-verification loop covers it.
+                        delegate.logger.info("登录界面启用了安全输入，物理键盘无法继续拦截，将依赖校验重试")
+                    }
+                    CGEvent.tapEnable(tap: tap, enable: true)
+                }
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard let userInfo else {
+            return Unmanaged.passUnretained(event)
+        }
+        let delegate = Unmanaged<AppDelegate>.fromOpaque(userInfo).takeUnretainedValue()
+        guard Date() < delegate.physicalInputLockUntil else {
+            return Unmanaged.passUnretained(event)
+        }
+        if event.getIntegerValueField(.eventSourceUserData) == syntheticInputMarker {
+            return Unmanaged.passUnretained(event)
+        }
+        return nil
     }
 
     private func isScreenLocked() -> Bool {
