@@ -21,9 +21,9 @@
 "status_success_unlocking" = "Đã khớp, đang mở khóa";
 "status_success" = "Đã khớp";
 "status_failed_retry" = "Không khớp, chuẩn bị thử lại";
-"status_failed_3" = "Không khớp sau 3 lần";
 "status_failed" = "Không khớp";
 "status_timeout" = "Nhận diện đã hết thời gian";
+"status_waiting_face" = "Đang chờ khuôn mặt";
 "status_missing_accessibility" = "Cần quyền Trợ năng";
 "status_accessibility_ready" = "Trợ năng đã sẵn sàng";
 "status_password_missing" = "Chưa đặt mật khẩu đăng nhập";
@@ -89,3 +89,4 @@
 "failure_camera_permission" = "Cần quyền máy quay.";
 "failure_timeout" = "Nhận diện khuôn mặt đã hết thời gian.";
 "failure_liveness" = "Đã đạt ngưỡng tương đồng nhưng chưa qua kiểm tra động tác sống. Hãy xoay đầu chậm rãi và thử lại.";
+"failure_no_face" = "Không phát hiện khuôn mặt trước camera.";

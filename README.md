@@ -9,6 +9,7 @@ macOSHello 是一个纯本地的 macOS 菜单栏人脸解锁工具。它使用�
 - 基础活体检测，要求注册和识别时缓慢转头
 - 枚举并指定内置或外接摄像头
 - 锁屏、屏幕唤醒、系统唤醒或屏保出现后自动识别
+- 无人时低频检查，有人但未匹配时递增重试间隔；不会在固定失败次数后永久停止
 - 密码保存在本机钥匙串，识别通过后解锁当前已登录会话
 - 显示器关闭或系统睡眠时停止人脸检测，避免摄像头长时间占用
 - 支持设置开机启动
@@ -51,7 +52,7 @@ macOSHello 监听锁屏、屏幕唤醒、系统唤醒和屏保通知，并在锁
 2. 通过辅助功能权限向登录窗口提交密码。
 3. 解锁当前用户已经登录后的锁屏会话。
 
-显示器关闭或系统睡眠时会停止摄像头和识别循环；显示器唤醒后再恢复检测。
+显示器关闭或系统睡眠时会立即停止摄像头和识别循环；显示器再次亮起且仍处于锁屏状态时恢复检测。自动重试没有固定次数上限：摄像头前无人时按 `2、4、8、16、32、60` 秒逐步拉长检查间隔；检测到人脸但未匹配时按 `1.5、3、6、12、20` 秒退避，连续 6 次未匹配后冷却 45 秒，再自动继续。键盘或鼠标活动会跳过已有延迟，立即开始识别。
 
 ## 使用的技术
 
@@ -124,6 +125,8 @@ During enrollment, the app uses `VNDetectFaceRectanglesRequest`, `VNDetectFaceLa
 After a successful match, macOSHello reads the password from the local Keychain and submits it to the login window using the Accessibility permission. It can unlock the lock screen only when the current user session has already been authenticated; it cannot unlock the FileVault first-login screen after a reboot.
 
 Face detection stops while the display is off or the system is asleep. All camera frames and face feature vectors are processed on-device. The liveness check is based on yaw and pitch variation and is not equivalent to Face ID's 3D depth-based liveness detection.
+
+Automatic retries have no fixed attempt limit. When nobody is detected, macOSHello backs off to checks after `2, 4, 8, 16, 32, and 60` seconds. When a person is present but does not match, verification retries after `1.5, 3, 6, 12, and 20` seconds; six consecutive misses trigger a 45-second cool-down before retries resume. Keyboard or mouse activity bypasses the current delay and starts verification immediately.
 
 ### Localization
 

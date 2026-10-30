@@ -21,9 +21,9 @@
 "status_success_unlocking" = "辨識成功，正在解鎖";
 "status_success" = "辨識成功";
 "status_failed_retry" = "辨識失敗，準備重試";
-"status_failed_3" = "辨識失敗 3 次";
 "status_failed" = "辨識失敗";
 "status_timeout" = "辨識逾時";
+"status_waiting_face" = "等待人臉進入畫面";
 "status_missing_accessibility" = "缺少輔助使用權限";
 "status_accessibility_ready" = "輔助使用已就緒";
 "status_password_missing" = "尚未設定登入密碼";
@@ -89,3 +89,4 @@
 "failure_camera_permission" = "需要攝影機權限。";
 "failure_timeout" = "臉孔辨識逾時。";
 "failure_liveness" = "相似度已達標，但活體動作未通過。請緩慢轉頭後再試。";
+"failure_no_face" = "攝影機畫面中未偵測到人臉。";

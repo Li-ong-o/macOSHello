@@ -21,9 +21,9 @@
 "status_success_unlocking" = "일치, 잠금 해제 중";
 "status_success" = "일치";
 "status_failed_retry" = "불일치, 재시도 준비 중";
-"status_failed_3" = "3회 불일치";
 "status_failed" = "불일치";
 "status_timeout" = "인식 시간 초과";
+"status_waiting_face" = "얼굴 감지 대기 중";
 "status_missing_accessibility" = "접근성 권한 필요";
 "status_accessibility_ready" = "접근성 준비 완료";
 "status_password_missing" = "로그인 비밀번호가 설정되지 않았습니다";
@@ -89,3 +89,4 @@
 "failure_camera_permission" = "카메라 권한이 필요합니다.";
 "failure_timeout" = "얼굴 인식 시간이 초과되었습니다.";
 "failure_liveness" = "유사도는 기준에 도달했지만 생체 동작 검사를 통과하지 못했습니다. 천천히 고개를 돌려 다시 시도하세요.";
+"failure_no_face" = "카메라 앞에서 얼굴이 감지되지 않았습니다.";

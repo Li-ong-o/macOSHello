@@ -21,9 +21,9 @@
 "status_success_unlocking" = "一致しました。ロック解除中";
 "status_success" = "一致しました";
 "status_failed_retry" = "不一致のため再試行します";
-"status_failed_3" = "3回不一致";
 "status_failed" = "不一致";
 "status_timeout" = "認識がタイムアウトしました";
+"status_waiting_face" = "顔の検出を待機中";
 "status_missing_accessibility" = "アクセシビリティ権限が必要です";
 "status_accessibility_ready" = "アクセシビリティ準備完了";
 "status_password_missing" = "ログインパスワードが未設定です";
@@ -89,3 +89,4 @@
 "failure_camera_permission" = "カメラ権限が必要です。";
 "failure_timeout" = "顔認識がタイムアウトしました。";
 "failure_liveness" = "類似度は基準に達しましたが、生体動作チェックを通過しませんでした。ゆっくり頭を回して再試行してください。";
+"failure_no_face" = "カメラの前に顔が検出されませんでした。";

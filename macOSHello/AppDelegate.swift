@@ -44,9 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var postUnlockRetryTimer: Timer?
     private var systemObservers: [NSObjectProtocol] = []
     private var continuousFaceUnlockEnabled = false
-    private var continuousFaceUnlockUntil = Date.distantPast
+    private var continuousFaceUnlockDeadline = Date.distantPast
     private var suppressFaceUnlockUntil = Date.distantPast
     private var continuousFaceUnlockAttemptCount = 0
+    private var facePresenceMissCount = 0
+    private var nextFaceAttemptAt = Date.distantPast
     private var lastObservedKeyboardEventAt: TimeInterval = .infinity
     private var lastKeyboardTriggerAt: TimeInterval = 0
     private var keyboardTriggerArmedAt = Date.distantPast.timeIntervalSinceReferenceDate
@@ -65,8 +67,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let wakeUnlockMaxRetries = 8
     private let conservativeWakeSleepThreshold: TimeInterval = 60
     private let conservativeWakeUnlockDelay: TimeInterval = 1.5
-    private let faceUnlockActiveWindow: TimeInterval = 30
-    private let faceUnlockMaxAttempts = 3
+    private let faceUnlockBaseRetryDelay: TimeInterval = 1.5
+    private let faceUnlockMaxRetryDelay: TimeInterval = 20
+    private let faceUnlockCooldownFailureCount = 6
+    private let faceUnlockCooldownDelay: TimeInterval = 45
+    private let facePresenceTimeout: TimeInterval = 3
+    private let facePresenceBaseDelay: TimeInterval = 2
+    private let facePresenceMaxDelay: TimeInterval = 60
+    /// How long a key/mouse triggered session keeps polling for a face. "Always" mode keeps polling
+    /// while the screen is locked and awake, `keyboard` mode stops so the camera stays untouched
+    /// until the user interacts again.
+    private let keyboardTriggerSessionDuration: TimeInterval = 30
     private let keyboardTriggerPollInterval: TimeInterval = 0.1
     private let keyboardTriggerDebounce: TimeInterval = 1
     private let keyboardTriggerArmingDelay: TimeInterval = 0.75
@@ -83,6 +94,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         startLockStatePolling()
         startKeyboardTriggerPolling()
         checkAccessibilityPermission()
+        DispatchQueue.main.async { [weak self] in
+            self?.resumeForCurrentLockState()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -215,14 +229,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.logger.info("屏幕已唤醒，安排人脸识别")
             self?.resetFaceUnlockAttempts()
             if self?.faceUnlockTriggerMode != .keyboard {
-                self?.scheduleFaceUnlock(after: 0.75)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+                    guard let self, self.isScreenLocked(), !self.isDisplayAsleep() else { return }
+                    self.startContinuousFaceUnlock(resetPenalty: true)
+                }
             }
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.displaySleep = true
-            if self?.continuousFaceUnlockEnabled == true {
-                wakeDisplay()
-            }
             self?.stopCameraWhenDisplayIsOff()
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -230,22 +244,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.displaySleep = false
             self?.lastWakeAt = Date().timeIntervalSince1970
             self?.logger.info("系统已唤醒，安排人脸识别")
+            self?.resetFaceUnlockAttempts()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                if self?.faceUnlockTriggerMode != .keyboard {
-                    self?.scheduleFaceUnlock(after: 1.0)
-                }
+                guard let self, self.isScreenLocked(), !self.isDisplayAsleep() else { return }
+                guard self.faceUnlockTriggerMode != .keyboard else { return }
+                self.startContinuousFaceUnlock(resetPenalty: true)
             }
         })
         systemObservers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.systemSleep = true
             self?.lastSystemSleepStartedAt = Date().timeIntervalSince1970
-            self?.cancelUnlockTimers()
+            self?.stopCameraWhenSystemSleeps()
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
             if self?.faceUnlockTriggerMode == .keyboard {
                 self?.prepareKeyboardTrigger()
             } else {
-                self?.startContinuousFaceUnlock()
+                self?.startContinuousFaceUnlock(resetPenalty: true)
             }
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
@@ -266,25 +281,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.inScreensaver = true
             self?.lastScreensaverStartedAt = Date().timeIntervalSince1970
             if self?.faceUnlockTriggerMode != .keyboard {
-                self?.scheduleFaceUnlock(after: 0.5)
+                self?.startContinuousFaceUnlock(resetPenalty: true)
             }
         })
         systemObservers.append(center.addObserver(forName: NSNotification.Name("com.apple.screensaver.didstop"), object: nil, queue: .main) { [weak self] _ in
             self?.inScreensaver = false
             self?.lastScreensaverStartedAt = 0
         })
-    }
-
-    private func scheduleFaceUnlock(after delay: TimeInterval = 0.2) {
-        guard autoUnlockEnabled, !systemSleep, !displaySleep else { return }
-        guard Date() >= suppressFaceUnlockUntil else { return }
-        let work = DispatchWorkItem { [weak self] in
-            self?.pendingFaceUnlock = nil
-            self?.unlockWithFace(requireLockedScreen: true, showResult: false)
-        }
-        pendingFaceUnlock?.cancel()
-        pendingFaceUnlock = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func startKeyboardTriggerPolling() {
@@ -305,12 +308,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private func pollKeyboardTrigger() {
         guard faceUnlockTriggerMode == .keyboard,
               autoUnlockEnabled,
-              !systemSleep,
-              !displaySleep,
+              !isPowerStateBlockingCamera,
               isScreenLocked(),
               !faceOperationActive,
-              Date() >= suppressFaceUnlockUntil,
-              continuousFaceUnlockAttemptCount < faceUnlockMaxAttempts else { return }
+              Date() >= suppressFaceUnlockUntil else { return }
 
         let secondsSinceLastEvent = Self.secondsSinceLastInputEvent
         guard secondsSinceLastEvent < lastObservedKeyboardEventAt else { return }
@@ -322,7 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
         lastKeyboardTriggerAt = Date().timeIntervalSinceReferenceDate
         logger.info("检测到键盘或鼠标活动，触发人脸识别")
-        startContinuousFaceUnlock()
+        startContinuousFaceUnlock(forceImmediate: true)
     }
 
     private static var secondsSinceLastInputEvent: TimeInterval {
@@ -360,7 +361,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         logger.info("屏幕已关闭，停止人脸识别")
     }
 
-    private func unlockWithFace(requireLockedScreen: Bool, showResult: Bool) {
+    private func stopCameraWhenSystemSleeps() {
+        cancelUnlockTimers()
+        stopContinuousFaceUnlock()
+        resetFaceUnlockAttempts()
+        faceUnlock.stopCurrentOperation()
+        logger.info("系统即将睡眠，停止人脸识别")
+    }
+
+    /// Live check instead of only trusting NSWorkspace notifications: those can be missed while the
+    /// app is suspended, which used to leave `displaySleep` stuck at `true` forever and silently
+    /// blocked every later unlock attempt.
+    private func isDisplayAsleep() -> Bool {
+        CGDisplayIsAsleep(CGMainDisplayID()) != 0
+    }
+
+    private var isPowerStateBlockingCamera: Bool {
+        systemSleep || displaySleep || isDisplayAsleep()
+    }
+
+    private func reconcilePowerState() {
+        let asleep = isDisplayAsleep()
+        var resumedFromSleep = false
+        if displaySleep != asleep {
+            logger.info("校正显示器状态：\(asleep ? "已关闭" : "已亮起", privacy: .public)")
+            displaySleep = asleep
+            if !asleep {
+                resumedFromSleep = true
+            }
+        }
+        // Timers cannot fire while the machine is really asleep, so a stale `systemSleep` flag only
+        // needs a short grace period before it is safe to clear.
+        if systemSleep, Date().timeIntervalSince1970 - lastSystemSleepStartedAt > 3 {
+            systemSleep = false
+            logger.info("校正系统休眠状态：已唤醒")
+            resumedFromSleep = true
+        }
+        if resumedFromSleep {
+            handleDisplayBecameAwake()
+        }
+    }
+
+    private func handleDisplayBecameAwake() {
+        resetFaceUnlockAttempts()
+        guard !isPowerStateBlockingCamera else { return }
+        guard autoUnlockEnabled, isScreenLocked() else { return }
+        guard faceUnlockTriggerMode != .keyboard else {
+            logger.info("屏幕已亮起，等待键盘或鼠标后识别人脸")
+            return
+        }
+        startContinuousFaceUnlock(resetPenalty: true)
+    }
+
+    /// Covers launches that happen while the screen is already locked, where the original lock
+    /// notification has already been delivered before this process started observing it.
+    private func resumeForCurrentLockState() {
+        reconcilePowerState()
+        guard autoUnlockEnabled, isScreenLocked(), !isPowerStateBlockingCamera else { return }
+        if faceUnlockTriggerMode == .keyboard {
+            prepareKeyboardTrigger()
+        } else {
+            startContinuousFaceUnlock(resetPenalty: true)
+        }
+    }
+
+    private func unlockWithFace(requireLockedScreen: Bool, showResult: Bool, presenceGate: Bool = false) {
         guard !faceOperationActive else { return }
         if requireLockedScreen { guard isScreenLocked() else { return } }
         faceOperationActive = true
@@ -368,10 +433,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         logger.info("开始人脸识别，要求锁屏：\(requireLockedScreen, privacy: .public)")
 
         Task { [weak self] in
-            if let self {
-                self.logger.info("开始人脸识别，相似度阈值 \(self.format(self.faceUnlock.threshold), privacy: .public)，活体检测 \(self.faceUnlock.livenessEnabled ? "开启" : "关闭", privacy: .public)")
-            }
-            let result = await self?.faceUnlock.verify(timeout: 8) ?? .failure(reason: .cameraUnavailable, similarity: nil, profile: nil)
+            guard let self else { return }
+            self.logger.info("开始人脸识别，相似度阈值 \(self.format(self.faceUnlock.threshold), privacy: .public)，活体检测 \(self.faceUnlock.livenessEnabled ? "开启" : "关闭", privacy: .public)")
+            let result = await self.faceUnlock.verify(
+                timeout: 8,
+                presenceTimeout: presenceGate ? self.facePresenceTimeout : nil
+            )
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.faceOperationActive = false
@@ -390,30 +457,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                         self.showInfo(L("verify_success_title"), LF("verify_success_message", profile.name, similarity))
                     }
                 case .failure(let reason, let similarity, _):
-                    let detail = similarity.map { LF("detail_max_similarity", $0) } ?? ""
-                    self.continuousFaceUnlockAttemptCount += 1
-                    self.logger.error(
-                        "人脸识别失败（第 \(self.continuousFaceUnlockAttemptCount)/\(self.faceUnlockMaxAttempts) 次）：\(reason.message, privacy: .public)\(detail, privacy: .public)"
+                    self.handleAutomaticVerificationFailure(
+                        reason: reason,
+                        similarity: similarity,
+                        requireLockedScreen: requireLockedScreen
                     )
-                    if requireLockedScreen, self.isScreenLocked() {
-                        if self.continuousFaceUnlockAttemptCount < self.faceUnlockMaxAttempts {
-                            self.updateStatus(L("status_failed_retry"))
-                            self.scheduleContinuousFaceUnlock(after: 1)
-                        } else {
-                            self.stopContinuousFaceUnlock()
-                            self.faceUnlock.stopCurrentOperation()
-                            self.updateStatus(L("status_failed_3"))
-                            self.logger.error("人脸识别连续失败 3 次，已停止摄像头")
-                        }
-                    } else {
-                        self.updateStatus(L("status_failed"))
-                    }
                     if showResult {
+                        let detail = similarity.map { LF("detail_max_similarity", $0) } ?? ""
                         self.showInfo(L("verify_failed_title"), reason.message + detail)
                     }
                 }
             }
         }
+    }
+
+    /// Escalating retry policy for the lock screen.
+    ///
+    /// There is no hard attempt limit any more: recognition keeps being retried while the screen is
+    /// locked and the display is awake. A "nobody in front of the camera" result is not a failure at
+    /// all, it only slows down how often the camera is woken up; a real non-match increases the wait
+    /// exponentially, and a short cool-down resets the ladder after repeated misses.
+    private func handleAutomaticVerificationFailure(
+        reason: FaceVerificationFailure,
+        similarity: Float?,
+        requireLockedScreen: Bool
+    ) {
+        guard requireLockedScreen, continuousFaceUnlockEnabled, isScreenLocked(), !isPowerStateBlockingCamera else {
+            updateStatus(L("status_failed"))
+            return
+        }
+
+        let detail = similarity.map { LF("detail_max_similarity", $0) } ?? ""
+
+        if case .noFaceDetected = reason {
+            facePresenceMissCount += 1
+            let delay = presenceBackoffDelay(after: facePresenceMissCount)
+            logger.info("摄像头前未检测到人脸（连续第 \(self.facePresenceMissCount, privacy: .public) 次），\(delay, privacy: .public) 秒后再次检测")
+            updateStatus(L("status_waiting_face"))
+            nextFaceAttemptAt = Date().addingTimeInterval(delay)
+            scheduleContinuousFaceUnlock(after: delay)
+            return
+        }
+
+        facePresenceMissCount = 0
+        continuousFaceUnlockAttemptCount += 1
+        logger.error(
+            "人脸识别未匹配（连续第 \(self.continuousFaceUnlockAttemptCount, privacy: .public) 次）：\(reason.message, privacy: .public)\(detail, privacy: .public)"
+        )
+
+        let delay: TimeInterval
+        if continuousFaceUnlockAttemptCount >= faceUnlockCooldownFailureCount {
+            delay = faceUnlockCooldownDelay
+            continuousFaceUnlockAttemptCount = 0
+            logger.error("人脸识别连续失败 \(self.faceUnlockCooldownFailureCount, privacy: .public) 次，冷却 \(delay, privacy: .public) 秒后重新开始")
+        } else {
+            delay = failureBackoffDelay(after: continuousFaceUnlockAttemptCount)
+        }
+
+        updateStatus(L("status_failed_retry"))
+        nextFaceAttemptAt = Date().addingTimeInterval(delay)
+        scheduleContinuousFaceUnlock(after: delay)
+    }
+
+    private func failureBackoffDelay(after failures: Int) -> TimeInterval {
+        let exponent = max(0, failures - 1)
+        return min(faceUnlockBaseRetryDelay * pow(2, Double(exponent)), faceUnlockMaxRetryDelay)
+    }
+
+    private func presenceBackoffDelay(after misses: Int) -> TimeInterval {
+        let exponent = max(0, misses - 1)
+        return min(facePresenceBaseDelay * pow(2, Double(exponent)), facePresenceMaxDelay)
     }
 
     private func format(_ value: Float) -> String {
@@ -435,21 +548,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         lastKnownLockedState = isScreenLocked()
         lockStateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
+            self.reconcilePowerState()
             let locked = self.isScreenLocked()
             if self.lastKnownLockedState != locked {
                 self.logger.info("检测到锁屏状态变化：\(locked ? "已锁定" : "已解锁", privacy: .public)")
                 self.lastKnownLockedState = locked
-            if locked {
-                if self.faceUnlockTriggerMode == .keyboard {
-                    self.prepareKeyboardTrigger()
+                if locked {
+                    if self.faceUnlockTriggerMode == .keyboard {
+                        self.prepareKeyboardTrigger()
+                    } else if !self.isPowerStateBlockingCamera {
+                        self.startContinuousFaceUnlock(resetPenalty: true)
+                    }
                 } else {
-                    self.startContinuousFaceUnlock()
-                }
-            } else {
-                self.faceUnlock.stopCurrentOperation()
-                self.faceOperationActive = false
-                self.keyboardTriggerArmedAt = Date.distantPast.timeIntervalSinceReferenceDate
-                self.pendingFaceUnlock?.cancel()
+                    self.faceUnlock.stopCurrentOperation()
+                    self.faceOperationActive = false
+                    self.keyboardTriggerArmedAt = Date.distantPast.timeIntervalSinceReferenceDate
+                    self.pendingFaceUnlock?.cancel()
                     self.pendingFaceUnlock = nil
                     self.cancelUnlockTimers()
                     self.stopContinuousFaceUnlock()
@@ -459,21 +573,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         }
     }
 
-    private func startContinuousFaceUnlock() {
+    private func startContinuousFaceUnlock(resetPenalty: Bool = false, forceImmediate: Bool = false) {
         continuousFaceUnlockEnabled = true
-        resetFaceUnlockAttempts()
+        if resetPenalty {
+            resetFaceUnlockAttempts()
+        }
+        if forceImmediate {
+            // An explicit key press or mouse movement means somebody is right here, so it should not
+            // wait for the penalty delay built up by earlier automatic retries.
+            nextFaceAttemptAt = .distantPast
+        }
         lastKeyboardTriggerAt = Date().timeIntervalSinceReferenceDate
-        continuousFaceUnlockUntil = Date().addingTimeInterval(faceUnlockActiveWindow)
-        scheduleContinuousFaceUnlock(after: 0.5)
+        continuousFaceUnlockDeadline = faceUnlockTriggerMode == .keyboard
+            ? Date().addingTimeInterval(keyboardTriggerSessionDuration)
+            : .distantFuture
+        // Keep an already running penalty delay, otherwise allow a fresh attempt right away.
+        let delay = max(0.5, nextFaceAttemptAt.timeIntervalSinceNow)
+        scheduleContinuousFaceUnlock(after: delay)
     }
 
     private func stopContinuousFaceUnlock() {
         continuousFaceUnlockEnabled = false
-        continuousFaceUnlockUntil = .distantPast
+        continuousFaceUnlockDeadline = .distantPast
     }
 
     private func resetFaceUnlockAttempts() {
         continuousFaceUnlockAttemptCount = 0
+        facePresenceMissCount = 0
+        nextFaceAttemptAt = .distantPast
     }
 
     private func scheduleContinuousFaceUnlock(after delay: TimeInterval) {
@@ -487,27 +614,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func runContinuousFaceUnlockOnce() {
-        guard Date() >= suppressFaceUnlockUntil else { return }
-        guard continuousFaceUnlockAttemptCount < faceUnlockMaxAttempts else {
-            stopContinuousFaceUnlock()
-            return
-        }
         guard continuousFaceUnlockEnabled, autoUnlockEnabled, isScreenLocked() else {
             if !isScreenLocked() { stopContinuousFaceUnlock() }
             return
         }
-        guard Date() <= continuousFaceUnlockUntil else {
-            continuousFaceUnlockEnabled = false
-            logger.info("持续人脸识别窗口结束")
+        guard !isPowerStateBlockingCamera else {
+            if isDisplayAsleep() { displaySleep = true }
+            cancelUnlockTimers()
+            stopContinuousFaceUnlock()
+            faceUnlock.stopCurrentOperation()
+            logger.info("屏幕已关闭，停止人脸识别")
+            return
+        }
+        guard Date() <= continuousFaceUnlockDeadline else {
+            stopContinuousFaceUnlock()
+            logger.info("本次人脸识别会话结束，等待下一次触发")
             updateStatus(L("status_timeout"))
             return
         }
-        guard !systemSleep, !displaySleep else { return }
-        unlockWithFace(requireLockedScreen: true, showResult: false)
+        guard !faceOperationActive else {
+            scheduleContinuousFaceUnlock(after: 0.5)
+            return
+        }
+
+        let now = Date()
+        if now < suppressFaceUnlockUntil {
+            scheduleContinuousFaceUnlock(after: suppressFaceUnlockUntil.timeIntervalSince(now) + 0.05)
+            return
+        }
+        if now < nextFaceAttemptAt {
+            scheduleContinuousFaceUnlock(after: nextFaceAttemptAt.timeIntervalSince(now))
+            return
+        }
+        unlockWithFace(requireLockedScreen: true, showResult: false, presenceGate: true)
     }
 
     private func tryUnlockScreen(retryCount: Int = 0) {
-        guard !systemSleep, !displaySleep else { return }
+        guard !isPowerStateBlockingCamera else { return }
         guard AXIsProcessTrusted() else {
             logger.error("自动解锁停止：缺少辅助功能权限")
             updateStatus(L("status_missing_accessibility"))
@@ -904,7 +1047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             pendingFaceUnlock = nil
             if isScreenLocked() { prepareKeyboardTrigger() }
         } else if isScreenLocked() {
-            startContinuousFaceUnlock()
+            startContinuousFaceUnlock(resetPenalty: true)
         }
     }
 

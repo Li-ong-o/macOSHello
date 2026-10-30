@@ -21,9 +21,9 @@
 "status_success_unlocking" = "ตรงกัน กำลังปลดล็อก";
 "status_success" = "ตรงกัน";
 "status_failed_retry" = "ไม่ตรง กำลังเตรียมลองอีกครั้ง";
-"status_failed_3" = "ไม่ตรง 3 ครั้ง";
 "status_failed" = "ไม่ตรง";
 "status_timeout" = "การจดจำหมดเวลา";
+"status_waiting_face" = "กำลังรอใบหน้า";
 "status_missing_accessibility" = "ต้องมีสิทธิ์การช่วยการเข้าถึง";
 "status_accessibility_ready" = "การช่วยการเข้าถึงพร้อมแล้ว";
 "status_password_missing" = "ยังไม่ได้ตั้งรหัสผ่านเข้าสู่ระบบ";
@@ -89,3 +89,4 @@
 "failure_camera_permission" = "ต้องมีสิทธิ์กล้อง";
 "failure_timeout" = "การจดจำใบหน้าหมดเวลา";
 "failure_liveness" = "ความคล้ายคลึงถึงเกณฑ์แล้ว แต่การตรวจการเคลื่อนไหวไม่ผ่าน โปรดหมุนศีรษะช้าๆ แล้วลองอีกครั้ง";
+"failure_no_face" = "ไม่พบใบหน้าต่อหน้ากล้อง";

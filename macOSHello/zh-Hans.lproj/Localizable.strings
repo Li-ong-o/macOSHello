@@ -21,9 +21,9 @@
 "status_success_unlocking" = "识别成功，正在解锁";
 "status_success" = "识别成功";
 "status_failed_retry" = "识别失败，准备重试";
-"status_failed_3" = "识别失败 3 次";
 "status_failed" = "识别失败";
 "status_timeout" = "识别超时";
+"status_waiting_face" = "等待人脸进入画面";
 "status_missing_accessibility" = "缺少辅助功能权限";
 "status_accessibility_ready" = "辅助功能已就绪";
 "status_password_missing" = "尚未设置登录密码";
@@ -89,3 +89,4 @@
 "failure_camera_permission" = "需要摄像头权限。";
 "failure_timeout" = "人脸识别超时。";
 "failure_liveness" = "相似度已达标，但活体动作未通过。请缓慢转头后重试。";
+"failure_no_face" = "摄像头画面中未检测到人脸。";

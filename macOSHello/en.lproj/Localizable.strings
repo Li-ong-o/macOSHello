@@ -21,9 +21,9 @@
 "status_success_unlocking" = "Matched, unlocking";
 "status_success" = "Matched";
 "status_failed_retry" = "No match, retrying";
-"status_failed_3" = "No match after 3 attempts";
 "status_failed" = "No match";
 "status_timeout" = "Recognition timed out";
+"status_waiting_face" = "Waiting for a face";
 "status_missing_accessibility" = "Accessibility permission required";
 "status_accessibility_ready" = "Accessibility ready";
 "status_password_missing" = "Login password not set";
@@ -89,3 +89,4 @@
 "failure_camera_permission" = "Camera permission is required.";
 "failure_timeout" = "Face recognition timed out.";
 "failure_liveness" = "The similarity threshold was reached, but the liveness motion check failed. Slowly turn your head and try again.";
+"failure_no_face" = "No face was detected in front of the camera.";

@@ -244,6 +244,7 @@ final class FaceUnlockService {
     private var bestSimilarity: Float = -1
     private var matchedProfile: FaceProfile?
     private var sawThresholdFrames = false
+    private var sawAnyFace = false
     private var lastDetectedFace: FaceFeaturePrint?
     private var continuation: CheckedContinuation<FaceVerificationResult, Never>?
     private var enrollmentContinuation: CheckedContinuation<[[Float]], Never>?
@@ -252,6 +253,7 @@ final class FaceUnlockService {
     private let serviceQueue = DispatchQueue(label: "com.tonydong.macOSHello.face-service")
     private var operationDeadline = Date.distantPast
     private var operationTimedOut = false
+    private var operationGeneration: UInt64 = 0
 
     var threshold: Float {
         get {
@@ -290,7 +292,7 @@ final class FaceUnlockService {
             self.enrollmentContinuation = continuation
             serviceQueue.async { [weak self] in
                 guard let self else { return continuation.resume(returning: []) }
-                self.startCamera(timeout: timeout) { face in
+                let operation = self.startCamera(timeout: timeout) { face in
                     guard face.quality > 0.25, !face.embedding.isEmpty else { return }
                     self.enrollmentLiveness.observe(face, matched: true)
                     if self.enrollmentLiveness.yawRange >= 0.08, self.enrollmentLiveness.pitchRange >= 0.03 {
@@ -302,7 +304,7 @@ final class FaceUnlockService {
                         self.finishEnrollment()
                     }
                 }
-                self.startTimeout(timeout: timeout)
+                self.startTimeout(timeout: timeout, operation: operation)
             }
         }
 
@@ -320,6 +322,7 @@ final class FaceUnlockService {
 
     func verify(
         timeout: TimeInterval = 8,
+        presenceTimeout: TimeInterval? = nil,
         onFrame: ((CGImage, CGRect?) -> Void)? = nil,
         onProgress: ((Float, Int) -> Void)? = nil
     ) async -> FaceVerificationResult {
@@ -330,11 +333,17 @@ final class FaceUnlockService {
         guard canStart else {
             return .failure(reason: .cameraUnavailable, similarity: nil, profile: nil)
         }
-        return await performVerify(timeout: timeout, onFrame: onFrame, onProgress: onProgress)
+        return await performVerify(
+            timeout: timeout,
+            presenceTimeout: presenceTimeout,
+            onFrame: onFrame,
+            onProgress: onProgress
+        )
     }
 
     private func performVerify(
         timeout: TimeInterval,
+        presenceTimeout: TimeInterval?,
         onFrame: ((CGImage, CGRect?) -> Void)?,
         onProgress: ((Float, Int) -> Void)?
     ) async -> FaceVerificationResult {
@@ -349,6 +358,7 @@ final class FaceUnlockService {
         bestSimilarity = -1
         matchedProfile = nil
         sawThresholdFrames = false
+        sawAnyFace = false
         previewFrameHandler = onFrame
         let progressHandler = onProgress
 
@@ -356,7 +366,8 @@ final class FaceUnlockService {
             self.continuation = continuation
             serviceQueue.async { [weak self] in
                 guard let self else { return }
-                self.startCamera(timeout: timeout) { face in
+                let operation = self.startCamera(timeout: timeout) { face in
+                    self.sawAnyFace = true
                     guard face.quality > 0.25, !face.embedding.isEmpty else { return }
                     guard let match = self.enrollmentStore.bestMatch(for: face.embedding) else { return }
                     self.bestSimilarity = max(self.bestSimilarity, match.similarity)
@@ -375,7 +386,10 @@ final class FaceUnlockService {
                         self.finish(.success(similarity: match.similarity, profile: match.profile))
                     }
                 }
-                self.startTimeout(timeout: timeout)
+                self.startTimeout(timeout: timeout, operation: operation)
+                if let presenceTimeout {
+                    self.startPresenceTimeout(presenceTimeout, operation: operation)
+                }
             }
         }
     }
@@ -387,7 +401,8 @@ final class FaceUnlockService {
 
     func stopCurrentOperation() {
         serviceQueue.async { [weak self] in
-            guard let self, self.camera != nil else { return }
+            guard let self else { return }
+            self.operationGeneration &+= 1
             self.operationTimedOut = true
             self.stopCamera()
             if let continuation = self.continuation {
@@ -413,14 +428,16 @@ final class FaceUnlockService {
         }
     }
 
-    private func startCamera(timeout: TimeInterval, handler: @escaping (FaceFeaturePrint) -> Void) {
+    private func startCamera(timeout: TimeInterval, handler: @escaping (FaceFeaturePrint) -> Void) -> UInt64 {
+        operationGeneration &+= 1
+        let operation = operationGeneration
         operationDeadline = Date().addingTimeInterval(timeout)
         operationTimedOut = false
         let camera = FaceCamera(cameraID: cameraID)
         let previewHandler: ((CGImage, CGRect?) -> Void)? = previewFrameHandler
         do {
             try camera.start { [weak self] pixelBuffer in
-                guard let self else { return }
+                guard let self, self.operationGeneration == operation, !self.operationTimedOut else { return }
                 if let previewHandler {
                     let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
                     let boundingBox = self.lastDetectedFace?.boundingBox
@@ -434,9 +451,13 @@ final class FaceUnlockService {
                 self.engine.detect(pixelBuffer: pixelBuffer) { face in
                     guard let face else { return }
                     DispatchQueue.main.async { [weak self] in
-                        self?.lastDetectedFace = face
+                        guard let self, self.operationGeneration == operation else { return }
+                        self.lastDetectedFace = face
                     }
-                    self.serviceQueue.async { handler(face) }
+                    self.serviceQueue.async {
+                        guard self.operationGeneration == operation, !self.operationTimedOut else { return }
+                        handler(face)
+                    }
                 }
             }
             self.camera = camera
@@ -447,13 +468,14 @@ final class FaceUnlockService {
                 finishEnrollment()
             }
         }
+        return operation
     }
 
-    private func startTimeout(timeout: TimeInterval) {
+    private func startTimeout(timeout: TimeInterval, operation: UInt64) {
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
             guard let self else { return }
             self.serviceQueue.async {
-                guard !self.operationTimedOut else { return }
+                guard self.operationGeneration == operation, !self.operationTimedOut else { return }
                 self.operationTimedOut = true
                 self.stopCamera()
                 if self.continuation != nil {
@@ -461,6 +483,22 @@ final class FaceUnlockService {
                 } else if self.enrollmentContinuation != nil {
                     self.finishEnrollment()
                 }
+            }
+        }
+    }
+
+    /// Ends the current verification early when no face showed up at all, so callers can tell
+    /// "nobody is in front of the camera" apart from "found a face, but it did not match".
+    private func startPresenceTimeout(_ presenceTimeout: TimeInterval, operation: UInt64) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + presenceTimeout) { [weak self] in
+            guard let self else { return }
+            self.serviceQueue.async {
+                guard self.operationGeneration == operation,
+                      !self.operationTimedOut,
+                      self.continuation != nil,
+                      !self.sawAnyFace else { return }
+                self.operationTimedOut = true
+                self.finish(.failure(reason: .noFaceDetected, similarity: nil, profile: nil))
             }
         }
     }
@@ -482,6 +520,8 @@ final class FaceUnlockService {
     }
 
     private func finish(_ result: FaceVerificationResult) {
+        operationGeneration &+= 1
+        operationTimedOut = true
         stopCamera()
         previewFrameHandler = nil
         continuation?.resume(returning: result)
@@ -489,6 +529,8 @@ final class FaceUnlockService {
     }
 
     private func finishEnrollment() {
+        operationGeneration &+= 1
+        operationTimedOut = true
         stopCamera()
         previewFrameHandler = nil
         enrollmentContinuation?.resume(returning: enrollmentSamples)
@@ -676,6 +718,7 @@ enum FaceVerificationFailure {
     case cameraPermission
     case timeout
     case livenessFailed
+    case noFaceDetected
 
     var message: String {
         switch self {
@@ -684,6 +727,7 @@ enum FaceVerificationFailure {
         case .cameraPermission: return L("failure_camera_permission")
         case .timeout: return L("failure_timeout")
         case .livenessFailed: return L("failure_liveness")
+        case .noFaceDetected: return L("failure_no_face")
         }
     }
 }
