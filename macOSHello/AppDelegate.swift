@@ -71,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let faceUnlockMaxRetryDelay: TimeInterval = 20
     private let faceUnlockCooldownFailureCount = 6
     private let faceUnlockCooldownDelay: TimeInterval = 45
+    private let faceVerificationTimeout: TimeInterval = 20
     private let facePresenceTimeout: TimeInterval = 3
     private let facePresenceBaseDelay: TimeInterval = 2
     private let facePresenceMaxDelay: TimeInterval = 60
@@ -89,6 +90,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if ProcessInfo.processInfo.arguments.contains("--face-self-test") {
+            runFaceSelfTest()
+            return
+        }
         configureStatusItem()
         registerSystemNotifications()
         startLockStatePolling()
@@ -96,6 +101,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         checkAccessibilityPermission()
         DispatchQueue.main.async { [weak self] in
             self?.resumeForCurrentLockState()
+        }
+    }
+
+    private func runFaceSelfTest() {
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await self.faceUnlock.verify(timeout: self.faceVerificationTimeout) { _, _ in
+            } onProgress: { similarity, matchedFrames in
+                print("face-self-test similarity=\(String(format: "%.6f", similarity)) matchedFrames=\(matchedFrames)")
+                fflush(stdout)
+            }
+            switch result {
+            case .success(let similarity, let profile):
+                print("face-self-test PASS profile=\(profile.name) similarity=\(String(format: "%.6f", similarity))")
+            case .failure(let reason, let similarity, _):
+                let value = similarity.map { String(format: "%.6f", $0) } ?? "none"
+                print("face-self-test FAIL reason=\(reason) bestSimilarity=\(value)")
+            }
+            fflush(stdout)
+            NSApp.terminate(nil)
         }
     }
 
@@ -436,7 +461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             guard let self else { return }
             self.logger.info("开始人脸识别，相似度阈值 \(self.format(self.faceUnlock.threshold), privacy: .public)，活体检测 \(self.faceUnlock.livenessEnabled ? "开启" : "关闭", privacy: .public)")
             let result = await self.faceUnlock.verify(
-                timeout: 8,
+                timeout: self.faceVerificationTimeout,
                 presenceTimeout: presenceGate ? self.facePresenceTimeout : nil
             )
             await MainActor.run { [weak self] in

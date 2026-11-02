@@ -46,74 +46,137 @@ struct FaceFeaturePrint {
 
 final class FaceFeaturePrintGenerator {
     private let queue = DispatchQueue(label: "com.tonydong.macOSHello.face-engine")
+    private let stateLock = NSLock()
+    private var isProcessing = false
 
     func detect(pixelBuffer: CVPixelBuffer, completion: @escaping (FaceFeaturePrint?) -> Void) {
-        queue.async {
-            let rectangles = VNDetectFaceRectanglesRequest()
-            let landmarks = VNDetectFaceLandmarksRequest()
-            let quality = VNDetectFaceCaptureQualityRequest()
-            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
-            do {
-                try handler.perform([rectangles, landmarks, quality])
-                guard let face = (rectangles.results ?? []).max(by: { $0.boundingBox.width < $1.boundingBox.width }),
-                      let qualityObservation = quality.results?.first(where: { $0.boundingBox == face.boundingBox }) ?? quality.results?.first as VNFaceObservation?,
-                      let croppedBuffer = Self.cropFace(pixelBuffer: pixelBuffer, boundingBox: face.boundingBox) else {
-                    completion(nil)
-                    return
+        stateLock.lock()
+        guard !isProcessing else {
+            stateLock.unlock()
+            completion(nil)
+            return
+        }
+        isProcessing = true
+        stateLock.unlock()
+
+        queue.async { [pixelBuffer] in
+            autoreleasepool {
+                defer {
+                    self.stateLock.lock()
+                    self.isProcessing = false
+                    self.stateLock.unlock()
                 }
-                let request = VNGenerateImageFeaturePrintRequest()
-                let faceHandler = VNImageRequestHandler(cvPixelBuffer: croppedBuffer, options: [:])
-                try faceHandler.perform([request])
-                guard let observation = request.results?.first else {
-                    completion(nil)
-                    return
-                }
-                completion(FaceFeaturePrint(
-                    boundingBox: face.boundingBox,
-                    quality: qualityObservation.faceCaptureQuality ?? 0,
-                    yaw: face.yaw?.floatValue ?? 0,
-                    pitch: face.pitch?.floatValue ?? 0,
-                    embedding: observation.data.withUnsafeBytes { raw in
-                        Array(raw.bindMemory(to: Float.self))
+                let rectangles = VNDetectFaceRectanglesRequest()
+                let quality = VNDetectFaceCaptureQualityRequest()
+                let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+                do {
+                    try handler.perform([rectangles, quality])
+                    guard let face = (rectangles.results ?? []).max(by: { $0.boundingBox.width < $1.boundingBox.width }),
+                          let qualityObservation = quality.results?.first(where: { $0.boundingBox == face.boundingBox }) ?? quality.results?.first as VNFaceObservation?,
+                          let croppedBuffer = Self.cropFace(pixelBuffer: pixelBuffer, boundingBox: face.boundingBox) else {
+                        completion(nil)
+                        return
                     }
-                ))
-            } catch {
-                completion(nil)
+                    let request = VNGenerateImageFeaturePrintRequest()
+                    let faceHandler = VNImageRequestHandler(cvPixelBuffer: croppedBuffer, options: [:])
+                    try faceHandler.perform([request])
+                    guard let observation = request.results?.first else {
+                        completion(nil)
+                        return
+                    }
+                    completion(FaceFeaturePrint(
+                        boundingBox: face.boundingBox,
+                        quality: qualityObservation.faceCaptureQuality ?? 0,
+                        yaw: face.yaw?.floatValue ?? 0,
+                        pitch: face.pitch?.floatValue ?? 0,
+                        embedding: observation.data.withUnsafeBytes { raw in
+                            Array(raw.bindMemory(to: Float.self))
+                        }
+                    ))
+                } catch {
+                    completion(nil)
+                }
             }
         }
     }
 
     private static func cropFace(pixelBuffer: CVPixelBuffer, boundingBox: CGRect) -> CVPixelBuffer? {
-        let imageWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
-        let imageHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
-        let frame = CGRect(
-            x: boundingBox.minX * imageWidth,
-            y: boundingBox.minY * imageHeight,
-            width: boundingBox.width * imageWidth,
-            height: boundingBox.height * imageHeight
-        ).integral
-        guard frame.width >= 32, frame.height >= 32 else { return nil }
-
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-        guard let source = CVPixelBufferGetBaseAddress(pixelBuffer),
-              let cropped = Self.createPixelBuffer(width: Int(frame.width), height: Int(frame.height), format: CVPixelBufferGetPixelFormatType(pixelBuffer)) else {
+        let imageWidth = CVPixelBufferGetWidth(pixelBuffer)
+        let imageHeight = CVPixelBufferGetHeight(pixelBuffer)
+        let normalizedBox = boundingBox.standardized
+        guard imageWidth > 0,
+              imageHeight > 0,
+              normalizedBox.minX.isFinite,
+              normalizedBox.minY.isFinite,
+              normalizedBox.maxX.isFinite,
+              normalizedBox.maxY.isFinite,
+              !CVPixelBufferIsPlanar(pixelBuffer),
+              CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else {
             return nil
         }
 
-        CVPixelBufferLockBaseAddress(cropped, [])
+        let clampedMinX = min(max(normalizedBox.minX, 0), 1)
+        let clampedMinY = min(max(normalizedBox.minY, 0), 1)
+        let clampedMaxX = min(max(normalizedBox.maxX, 0), 1)
+        let clampedMaxY = min(max(normalizedBox.maxY, 0), 1)
+        let minX = Int(floor(clampedMinX * CGFloat(imageWidth)))
+        let minY = Int(floor(clampedMinY * CGFloat(imageHeight)))
+        let maxX = Int(ceil(clampedMaxX * CGFloat(imageWidth)))
+        let maxY = Int(ceil(clampedMaxY * CGFloat(imageHeight)))
+        let cropX = min(max(minX, 0), imageWidth)
+        let cropY = min(max(minY, 0), imageHeight)
+        let cropMaxX = min(max(maxX, cropX), imageWidth)
+        let cropMaxY = min(max(maxY, cropY), imageHeight)
+        let cropWidth = cropMaxX - cropX
+        let cropHeight = cropMaxY - cropY
+        guard cropWidth >= 32, cropHeight >= 32 else { return nil }
+
+        guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let source = CVPixelBufferGetBaseAddress(pixelBuffer),
+              let cropped = Self.createPixelBuffer(
+                width: cropWidth,
+                height: cropHeight,
+                format: kCVPixelFormatType_32BGRA
+              ) else {
+            return nil
+        }
+
+        guard CVPixelBufferLockBaseAddress(cropped, []) == kCVReturnSuccess else { return nil }
         defer { CVPixelBufferUnlockBaseAddress(cropped, []) }
-        guard let destination = CVPixelBufferGetBaseAddress(cropped) else { return cropped }
+        guard let destination = CVPixelBufferGetBaseAddress(cropped) else { return nil }
 
         let sourceBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
         let destinationBytesPerRow = CVPixelBufferGetBytesPerRow(cropped)
         let bytesPerPixel = 4
-        let bytesToCopy = Int(frame.width) * bytesPerPixel
-        for row in 0..<Int(frame.height) {
-            // Vision boxes are normalized with the origin at the lower-left,
-            // while CVPixelBuffer rows start at the top of the image.
-            let sourceY = imageHeight - frame.maxY
-            let sourceRow = source.advanced(by: Int(sourceY) * sourceBytesPerRow + Int(frame.minX) * bytesPerPixel)
+        let bytesToCopy = cropWidth * bytesPerPixel
+        let sourceDataSize = CVPixelBufferGetDataSize(pixelBuffer)
+        let destinationDataSize = CVPixelBufferGetDataSize(cropped)
+        guard sourceBytesPerRow >= imageWidth * bytesPerPixel,
+              destinationBytesPerRow >= bytesToCopy,
+              sourceDataSize > 0,
+              destinationDataSize > 0 else {
+            return nil
+        }
+
+        // Existing face profiles were enrolled with the legacy row-duplication
+        // representation. Keep that representation for compatibility while the
+        // bounds checks below make the copy safe.
+        let firstSourceRow = imageHeight - cropMaxY
+        let lastSourceRow = firstSourceRow
+        let firstSourceOffset = firstSourceRow * sourceBytesPerRow + cropX * bytesPerPixel
+        let lastSourceEnd = firstSourceOffset + bytesToCopy
+        let lastDestinationEnd = (cropHeight - 1) * destinationBytesPerRow + bytesToCopy
+        guard firstSourceRow >= 0,
+              lastSourceRow < imageHeight,
+              firstSourceOffset >= 0,
+              lastSourceEnd <= sourceDataSize,
+              lastDestinationEnd <= destinationDataSize else {
+            return nil
+        }
+
+        for row in 0..<cropHeight {
+            let sourceRow = source.advanced(by: firstSourceOffset)
             let destinationRow = destination.advanced(by: row * destinationBytesPerRow)
             memmove(destinationRow, sourceRow, bytesToCopy)
         }
@@ -605,7 +668,7 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
         statusLabel.textColor = .white
         verificationTask = Task { [weak self] in
             guard let self else { return }
-            let result = await self.faceUnlock.verify(timeout: 15) { [weak self] image, normalizedFaceBox in
+            let result = await self.faceUnlock.verify(timeout: 20) { [weak self] image, normalizedFaceBox in
                 guard let self else { return }
                 self.imageView.image = self.annotatedImage(from: image, normalizedFaceBox: normalizedFaceBox)
             } onProgress: { [weak self] similarity, matchedFrames in
