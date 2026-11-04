@@ -8,7 +8,9 @@ macOSHello 是一个纯本地的 macOS 菜单栏人脸解锁工具。它使用�
 - 人脸识别、相似度阈值判断、实时相似度显示
 - 基础活体检测，要求注册和识别时缓慢转头
 - 枚举并指定内置或外接摄像头
+- 识别画面中最相关的两张人脸，并选择相似度最高的一张进行匹配
 - 锁屏、屏幕唤醒、系统唤醒或屏保出现后自动识别
+- 锁屏后可设置 20 秒或 60 秒冷却时间，避免人还没离开就被自动解锁
 - 无人时低频检查，有人但未匹配时递增重试间隔；不会在固定失败次数后永久停止
 - 密码保存在本机钥匙串，识别通过后解锁当前已登录会话
 - 显示器关闭或系统睡眠时停止人脸检测，避免摄像头长时间占用
@@ -21,10 +23,9 @@ macOSHello 是一个纯本地的 macOS 菜单栏人脸解锁工具。它使用�
 注册时，macOSHello 通过 AVFoundation 读取摄像头帧，然后使用 Vision 完成以下处理：
 
 1. `VNDetectFaceRectanglesRequest` 检测画面中的人脸区域。
-2. `VNDetectFaceLandmarksRequest` 获取人脸关键点。
-3. `VNDetectFaceCaptureQualityRequest` 评估人脸质量，低质量帧会被丢弃。
-4. `VNGenerateImageFeaturePrintRequest` 生成人脸特征向量。
-5. 保存 8 组满足姿态变化要求的特征向量到 `~/.macOSHello/faces.json`。
+2. `VNDetectFaceCaptureQualityRequest` 评估人脸质量，低质量帧会被丢弃。
+3. `VNGenerateImageFeaturePrintRequest` 生成人脸特征向量。
+4. 保存 8 组满足姿态变化要求的特征向量到 `~/.macOSHello/faces.json`，新档案使用 `embeddingVersion 2`。
 
 注册阶段会记录 yaw 和 pitch 的变化范围，要求缓慢转头。这不是 Face ID 那种 3D 结构光活体检测，而是基础姿态变化检测。
 
@@ -44,6 +45,9 @@ macOSHello 是一个纯本地的 macOS 菜单栏人脸解锁工具。它使用�
 
 因此“最高相似度超过阈值”但不等于识别成功；如果中途有一帧低于阈值，连续计数会重新开始。
 
+识别会从 Vision 检测到的前两张人脸中分别计算相似度，并使用最佳候选者。旧版本档案没有
+`embeddingVersion` 标记，识别时会同时兼容旧特征格式和新特征格式；建议升级后重新注册人脸，以获得更稳定的识别结果。
+
 ### 屏幕解锁
 
 macOSHello 监听锁屏、屏幕唤醒、系统唤醒和屏保通知，并在锁屏状态下启动本地人脸识别。识别成功后：
@@ -53,6 +57,10 @@ macOSHello 监听锁屏、屏幕唤醒、系统唤醒和屏保通知，并在锁
 3. 解锁当前用户已经登录后的锁屏会话。
 
 显示器关闭或系统睡眠时会立即停止摄像头和识别循环；显示器再次亮起且仍处于锁屏状态时恢复检测。自动重试没有固定次数上限：摄像头前无人时按 `2、4、8、16、32、60` 秒逐步拉长检查间隔；检测到人脸但未匹配时按 `1.5、3、6、12、20` 秒退避，连续 6 次未匹配后冷却 45 秒，再自动继续。键盘或鼠标活动会跳过已有延迟，立即开始识别。
+
+锁屏冷却是独立设置，默认 20 秒。在这段时间内，即使人脸识别成功，应用也不会输入密码；如果冷却开始时密码输入序列尚未完成，输入会立即取消。冷却结束后按当前触发方式继续等待键盘/鼠标活动或恢复自动识别。
+
+应用最低支持 macOS 12。macOS 12 可以使用人脸识别和锁屏解锁；应用内“开机启动”设置依赖 `SMAppService`，仅在 macOS 13 及以上可用。
 
 ## 使用的技术
 
@@ -120,13 +128,17 @@ swift build
 
 macOSHello is a fully local macOS menu-bar face unlock utility. It captures camera frames with AVFoundation, detects faces and generates face feature vectors with Apple's Vision framework, and compares vectors locally using cosine similarity. It does not use any third-party library, cloud service, Python runtime, or OpenCV.
 
-During enrollment, the app uses `VNDetectFaceRectanglesRequest`, `VNDetectFaceLandmarksRequest`, `VNDetectFaceCaptureQualityRequest`, and `VNGenerateImageFeaturePrintRequest`. It stores eight feature samples in `~/.macOSHello/faces.json`. During verification, it compares the current feature vector with enrolled samples. A successful match requires the configured similarity threshold to be met for eight consecutive frames, plus the basic pose-range liveness check when liveness detection is enabled.
+During enrollment, the app uses `VNDetectFaceRectanglesRequest`, `VNDetectFaceCaptureQualityRequest`, and `VNGenerateImageFeaturePrintRequest`. It stores eight feature samples in `~/.macOSHello/faces.json` with `embeddingVersion 2`. During verification, it compares the current feature vector with enrolled samples. A successful match requires the configured similarity threshold to be met for eight consecutive frames, plus the basic pose-range liveness check when liveness detection is enabled.
 
 After a successful match, macOSHello reads the password from the local Keychain and submits it to the login window using the Accessibility permission. It can unlock the lock screen only when the current user session has already been authenticated; it cannot unlock the FileVault first-login screen after a reboot.
 
 Face detection stops while the display is off or the system is asleep. All camera frames and face feature vectors are processed on-device. The liveness check is based on yaw and pitch variation and is not equivalent to Face ID's 3D depth-based liveness detection.
 
 Automatic retries have no fixed attempt limit. When nobody is detected, macOSHello backs off to checks after `2, 4, 8, 16, 32, and 60` seconds. When a person is present but does not match, verification retries after `1.5, 3, 6, 12, and 20` seconds; six consecutive misses trigger a 45-second cool-down before retries resume. Keyboard or mouse activity bypasses the current delay and starts verification immediately.
+
+Post-lock cooldown is configurable and defaults to 20 seconds. During the cooldown, a successful face match will not trigger password entry, and an in-progress password entry sequence is cancelled immediately. After the cooldown, recognition resumes according to the selected trigger mode.
+
+macOSHello supports macOS 12 and later. Face unlock works on macOS 12; the in-app launch-at-login setting requires `SMAppService` and is available on macOS 13 and later.
 
 ### Localization
 

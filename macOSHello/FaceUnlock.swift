@@ -12,6 +12,7 @@ struct FaceProfile: Codable, Identifiable {
     var createdAt: Date = Date()
     var samples: [[Float]]
     var qualitySamples: [Float]
+    var embeddingVersion: Int?
 }
 
 struct FaceEnrollmentStore: Codable {
@@ -24,15 +25,28 @@ struct FaceEnrollmentStore: Codable {
             .appendingPathComponent(".macOSHello/faces.json", isDirectory: false)
     }
 
-    func bestMatch(for embedding: [Float]) -> (profile: FaceProfile, similarity: Float)? {
+    func bestMatch(for face: FaceFeaturePrint) -> (profile: FaceProfile, similarity: Float)? {
         profiles
-            .compactMap { profile in
-                profile.samples
-                    .map { FaceFeaturePrintGenerator.cosineSimilarity(embedding, $0) }
+            .compactMap { profile -> (FaceProfile, Float)? in
+                let embeddingVersion = profile.embeddingVersion ?? 1
+                let candidates: [[Float]]
+                if embeddingVersion >= 2 {
+                    candidates = [face.embedding]
+                } else {
+                    // Version 1 profiles may have been created either by the row-duplication
+                    // implementation or by an older correct implementation. Compare both.
+                    candidates = [face.legacyEmbedding, face.embedding].compactMap { $0 }
+                }
+                return candidates
+                    .compactMap { candidate in
+                        profile.samples
+                            .map { FaceFeaturePrintGenerator.cosineSimilarity(candidate, $0) }
+                            .max()
+                    }
                     .max()
                     .map { (profile, $0) }
             }
-            .max { $0.similarity < $1.similarity }
+            .max { $0.1 < $1.1 }
     }
 }
 
@@ -42,6 +56,7 @@ struct FaceFeaturePrint {
     let yaw: Float
     let pitch: Float
     let embedding: [Float]
+    let legacyEmbedding: [Float]?
 }
 
 final class FaceFeaturePrintGenerator {
@@ -49,11 +64,15 @@ final class FaceFeaturePrintGenerator {
     private let stateLock = NSLock()
     private var isProcessing = false
 
-    func detect(pixelBuffer: CVPixelBuffer, completion: @escaping (FaceFeaturePrint?) -> Void) {
+    func detect(
+        pixelBuffer: CVPixelBuffer,
+        includeLegacyEmbedding: Bool,
+        completion: @escaping ([FaceFeaturePrint]) -> Void
+    ) {
         stateLock.lock()
         guard !isProcessing else {
             stateLock.unlock()
-            completion(nil)
+            completion([])
             return
         }
         isProcessing = true
@@ -71,36 +90,65 @@ final class FaceFeaturePrintGenerator {
                 let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
                 do {
                     try handler.perform([rectangles, quality])
-                    guard let face = (rectangles.results ?? []).max(by: { $0.boundingBox.width < $1.boundingBox.width }),
-                          let qualityObservation = quality.results?.first(where: { $0.boundingBox == face.boundingBox }) ?? quality.results?.first as VNFaceObservation?,
-                          let croppedBuffer = Self.cropFace(pixelBuffer: pixelBuffer, boundingBox: face.boundingBox) else {
-                        completion(nil)
-                        return
-                    }
-                    let request = VNGenerateImageFeaturePrintRequest()
-                    let faceHandler = VNImageRequestHandler(cvPixelBuffer: croppedBuffer, options: [:])
-                    try faceHandler.perform([request])
-                    guard let observation = request.results?.first else {
-                        completion(nil)
-                        return
-                    }
-                    completion(FaceFeaturePrint(
-                        boundingBox: face.boundingBox,
-                        quality: qualityObservation.faceCaptureQuality ?? 0,
-                        yaw: face.yaw?.floatValue ?? 0,
-                        pitch: face.pitch?.floatValue ?? 0,
-                        embedding: observation.data.withUnsafeBytes { raw in
-                            Array(raw.bindMemory(to: Float.self))
+                    let detectedFaces = (rectangles.results ?? [])
+                        .sorted { $0.boundingBox.width * $0.boundingBox.height > $1.boundingBox.width * $1.boundingBox.height }
+                        .prefix(2)
+                    var featurePrints: [FaceFeaturePrint] = []
+                    for face in detectedFaces {
+                        guard let qualityObservation = quality.results?.first(where: { $0.boundingBox == face.boundingBox }),
+                              let croppedBuffer = Self.cropFace(
+                                pixelBuffer: pixelBuffer,
+                                boundingBox: face.boundingBox,
+                                legacyRowDuplication: false
+                              ),
+                              let embedding = Self.featureEmbedding(for: croppedBuffer) else {
+                            continue
                         }
-                    ))
+                        var legacyEmbedding: [Float]?
+                        if includeLegacyEmbedding,
+                           let legacyBuffer = Self.cropFace(
+                            pixelBuffer: pixelBuffer,
+                            boundingBox: face.boundingBox,
+                            legacyRowDuplication: true
+                           ) {
+                            legacyEmbedding = Self.featureEmbedding(for: legacyBuffer)
+                        }
+                        featurePrints.append(FaceFeaturePrint(
+                            boundingBox: face.boundingBox,
+                            quality: qualityObservation.faceCaptureQuality ?? 0,
+                            yaw: face.yaw?.floatValue ?? 0,
+                            pitch: face.pitch?.floatValue ?? 0,
+                            embedding: embedding,
+                            legacyEmbedding: legacyEmbedding
+                        ))
+                    }
+                    completion(featurePrints)
                 } catch {
-                    completion(nil)
+                    completion([])
                 }
             }
         }
     }
 
-    private static func cropFace(pixelBuffer: CVPixelBuffer, boundingBox: CGRect) -> CVPixelBuffer? {
+    private static func featureEmbedding(for pixelBuffer: CVPixelBuffer) -> [Float]? {
+        let request = VNGenerateImageFeaturePrintRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+        do {
+            try handler.perform([request])
+            guard let observation = request.results?.first else { return nil }
+            return observation.data.withUnsafeBytes { raw in
+                Array(raw.bindMemory(to: Float.self))
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    private static func cropFace(
+        pixelBuffer: CVPixelBuffer,
+        boundingBox: CGRect,
+        legacyRowDuplication: Bool
+    ) -> CVPixelBuffer? {
         let imageWidth = CVPixelBufferGetWidth(pixelBuffer)
         let imageHeight = CVPixelBufferGetHeight(pixelBuffer)
         let normalizedBox = boundingBox.standardized
@@ -159,16 +207,14 @@ final class FaceFeaturePrintGenerator {
             return nil
         }
 
-        // Existing face profiles were enrolled with the legacy row-duplication
-        // representation. Keep that representation for compatibility while the
-        // bounds checks below make the copy safe.
         let firstSourceRow = imageHeight - cropMaxY
-        let lastSourceRow = firstSourceRow
+        let lastSourceRow = legacyRowDuplication ? firstSourceRow : firstSourceRow + cropHeight - 1
         let firstSourceOffset = firstSourceRow * sourceBytesPerRow + cropX * bytesPerPixel
-        let lastSourceEnd = firstSourceOffset + bytesToCopy
+        let lastSourceEnd = lastSourceRow * sourceBytesPerRow + cropX * bytesPerPixel + bytesToCopy
         let lastDestinationEnd = (cropHeight - 1) * destinationBytesPerRow + bytesToCopy
         guard firstSourceRow >= 0,
               lastSourceRow < imageHeight,
+              lastSourceRow >= firstSourceRow,
               firstSourceOffset >= 0,
               lastSourceEnd <= sourceDataSize,
               lastDestinationEnd <= destinationDataSize else {
@@ -176,7 +222,9 @@ final class FaceFeaturePrintGenerator {
         }
 
         for row in 0..<cropHeight {
-            let sourceRow = source.advanced(by: firstSourceOffset)
+            let sourceRow = legacyRowDuplication
+                ? source.advanced(by: firstSourceOffset)
+                : source.advanced(by: (firstSourceRow + row) * sourceBytesPerRow + cropX * bytesPerPixel)
             let destinationRow = destination.advanced(by: row * destinationBytesPerRow)
             memmove(destinationRow, sourceRow, bytesToCopy)
         }
@@ -225,11 +273,13 @@ final class FaceCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         } else {
             types = [.builtInWideAngleCamera]
         }
-        return AVCaptureDevice.DiscoverySession(
+        let session = AVCaptureDevice.DiscoverySession(
             deviceTypes: types,
             mediaType: .video,
-            position: .front
-        ).devices
+            position: .unspecified
+        )
+        var seen = Set<String>()
+        return session.devices.filter { seen.insert($0.uniqueID).inserted }
     }
 
     func start(frameHandler: @escaping (CVPixelBuffer) -> Void) throws {
@@ -249,7 +299,14 @@ final class FaceCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         session.sessionPreset = .vga640x480
         let devices = Self.availableCameras()
         guard !devices.isEmpty else { throw FaceUnlockError.noCamera }
-        let device = devices.first { $0.uniqueID == selectedCameraID || $0.localizedName == selectedCameraID }
+        let selectedDevice = devices.first {
+            $0.uniqueID == selectedCameraID || $0.localizedName == selectedCameraID
+        }
+        let hasExplicitSelection = selectedCameraID.map { !$0.isEmpty } ?? false
+        guard hasExplicitSelection ? selectedDevice != nil : true else {
+            throw FaceUnlockError.noCamera
+        }
+        let device = selectedDevice
             ?? devices.first { $0.deviceType == .builtInWideAngleCamera }
             ?? devices[0]
         let input = try AVCaptureDeviceInput(device: device)
@@ -280,6 +337,7 @@ final class FaceCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 
 enum FaceUnlockError: Error, LocalizedError {
     case noCamera
+    case cameraBusy
     case cameraPermissionDenied
     case timeout
     case enrollmentMissing
@@ -287,6 +345,7 @@ enum FaceUnlockError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noCamera: return L("error_no_camera")
+        case .cameraBusy: return L("error_camera_busy")
         case .cameraPermissionDenied: return L("error_camera_permission_denied")
         case .timeout: return L("error_timeout")
         case .enrollmentMissing: return L("error_enrollment_missing")
@@ -317,6 +376,7 @@ final class FaceUnlockService {
     private var operationDeadline = Date.distantPast
     private var operationTimedOut = false
     private var operationGeneration: UInt64 = 0
+    private var isOperationReserveHeld = false
 
     var threshold: Float {
         get {
@@ -345,6 +405,7 @@ final class FaceUnlockService {
     }
 
     func enroll(name: String, timeout: TimeInterval = 30) async throws -> FaceProfile {
+        guard reserveOperation() else { throw FaceUnlockError.cameraBusy }
         guard await requestCameraPermission() else { throw FaceUnlockError.cameraPermissionDenied }
         loadEnrollment()
         enrollmentSamples.removeAll()
@@ -355,25 +416,33 @@ final class FaceUnlockService {
             self.enrollmentContinuation = continuation
             serviceQueue.async { [weak self] in
                 guard let self else { return continuation.resume(returning: []) }
-                let operation = self.startCamera(timeout: timeout) { face in
-                    guard face.quality > 0.25, !face.embedding.isEmpty else { return }
-                    self.enrollmentLiveness.observe(face, matched: true)
-                    if self.enrollmentLiveness.yawRange >= 0.08, self.enrollmentLiveness.pitchRange >= 0.03 {
-                        self.enrollmentSamples.append(face.embedding)
-                        self.qualitySamples.append(face.quality)
-                        self.enrollmentLiveness.reset()
+                let operation = self.startCamera(timeout: timeout) { faces in
+                    if let face = faces.max(by: { $0.quality < $1.quality }),
+                       face.quality > 0.25, !face.embedding.isEmpty {
+                        self.enrollmentLiveness.observe(face, matched: true)
+                        if self.enrollmentLiveness.yawRange >= 0.08, self.enrollmentLiveness.pitchRange >= 0.03 {
+                            self.enrollmentSamples.append(face.embedding)
+                            self.qualitySamples.append(face.quality)
+                            self.enrollmentLiveness.reset()
+                        }
+                        if self.enrollmentSamples.count == 8 {
+                            self.finishEnrollment()
                     }
-                    if self.enrollmentSamples.count == 8 {
-                        self.finishEnrollment()
-                    }
+                }
                 }
                 self.startTimeout(timeout: timeout, operation: operation)
             }
         }
 
+        defer { releaseOperationReservation() }
         stopCamera()
         guard samples.count >= 8 else { throw FaceUnlockError.timeout }
-        let profile = FaceProfile(name: name, samples: samples, qualitySamples: qualitySamples)
+        let profile = FaceProfile(
+            name: name,
+            samples: samples,
+            qualitySamples: qualitySamples,
+            embeddingVersion: 2
+        )
         enrollmentStore.profiles.append(profile)
         try FileManager.default.createDirectory(
             at: FaceEnrollmentStore.storageURL.deletingLastPathComponent(),
@@ -389,13 +458,10 @@ final class FaceUnlockService {
         onFrame: ((CGImage, CGRect?) -> Void)? = nil,
         onProgress: ((Float, Int) -> Void)? = nil
     ) async -> FaceVerificationResult {
-        let canStart = serviceQueue.sync { [weak self] in
-            guard let self else { return false }
-            return self.camera == nil && self.continuation == nil && self.enrollmentContinuation == nil
+        guard reserveOperation() else {
+            return .failure(reason: .cameraBusy, similarity: nil, profile: nil)
         }
-        guard canStart else {
-            return .failure(reason: .cameraUnavailable, similarity: nil, profile: nil)
-        }
+        defer { releaseOperationReservation() }
         return await performVerify(
             timeout: timeout,
             presenceTimeout: presenceTimeout,
@@ -429,24 +495,29 @@ final class FaceUnlockService {
             self.continuation = continuation
             serviceQueue.async { [weak self] in
                 guard let self else { return }
-                let operation = self.startCamera(timeout: timeout) { face in
+                let operation = self.startCamera(timeout: timeout) { faces in
                     self.sawAnyFace = true
-                    guard face.quality > 0.25, !face.embedding.isEmpty else { return }
-                    guard let match = self.enrollmentStore.bestMatch(for: face.embedding) else { return }
-                    self.bestSimilarity = max(self.bestSimilarity, match.similarity)
-                    self.matchedProfile = match.profile
-                    let matched = match.similarity >= self.threshold
+                    let candidate = faces
+                        .compactMap { face -> (FaceFeaturePrint, FaceProfile, Float)? in
+                            guard face.quality > 0.25, !face.embedding.isEmpty,
+                                  let match = self.enrollmentStore.bestMatch(for: face) else { return nil }
+                            return (face, match.profile, match.similarity)
+                        }
+                        .max { $0.2 < $1.2 }
+                    guard let (face, profile, similarity) = candidate else { return }
+                    self.bestSimilarity = max(self.bestSimilarity, similarity)
+                    self.matchedProfile = profile
+                    let matched = similarity >= self.threshold
                     self.verifyState.observe(face, matched: matched)
                     if matched { self.sawThresholdFrames = true }
                     if let progressHandler {
                         let matchedFrames = self.verifyState.matchedFrames
                         DispatchQueue.main.async {
-                            progressHandler(match.similarity, matchedFrames)
+                            progressHandler(similarity, matchedFrames)
                         }
                     }
-                    self.logger.info("人脸识别进度：相似度 \(match.similarity, privacy: .public)，达到阈值 \(matched, privacy: .public)，连续达标帧数 \(self.verifyState.matchedFrames, privacy: .public)")
                     if self.verifyState.isLive(matchThreshold: self.threshold, livenessRequired: self.livenessEnabled) {
-                        self.finish(.success(similarity: match.similarity, profile: match.profile))
+                        self.finish(.success(similarity: similarity, profile: profile))
                     }
                 }
                 self.startTimeout(timeout: timeout, operation: operation)
@@ -480,6 +551,20 @@ final class FaceUnlockService {
         }
     }
 
+    private func reserveOperation() -> Bool {
+        serviceQueue.sync {
+            guard !isOperationReserveHeld else { return false }
+            isOperationReserveHeld = true
+            return true
+        }
+    }
+
+    private func releaseOperationReservation() {
+        serviceQueue.async { [weak self] in
+            self?.isOperationReserveHeld = false
+        }
+    }
+
     private func requestCameraPermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
@@ -491,7 +576,7 @@ final class FaceUnlockService {
         }
     }
 
-    private func startCamera(timeout: TimeInterval, handler: @escaping (FaceFeaturePrint) -> Void) -> UInt64 {
+    private func startCamera(timeout: TimeInterval, handler: @escaping ([FaceFeaturePrint]) -> Void) -> UInt64 {
         operationGeneration &+= 1
         let operation = operationGeneration
         operationDeadline = Date().addingTimeInterval(timeout)
@@ -511,15 +596,14 @@ final class FaceUnlockService {
                         DispatchQueue.main.async { previewHandler(cgImage, boundingBox) }
                     }
                 }
-                self.engine.detect(pixelBuffer: pixelBuffer) { face in
-                    guard let face else { return }
+                self.engine.detect(pixelBuffer: pixelBuffer, includeLegacyEmbedding: self.hasLegacyProfiles()) { faces in
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.operationGeneration == operation else { return }
-                        self.lastDetectedFace = face
+                        self.lastDetectedFace = faces.first
                     }
                     self.serviceQueue.async {
                         guard self.operationGeneration == operation, !self.operationTimedOut else { return }
-                        handler(face)
+                        handler(faces)
                     }
                 }
             }
@@ -570,6 +654,10 @@ final class FaceUnlockService {
         camera?.stop()
         camera = nil
         lastDetectedFace = nil
+    }
+
+    private func hasLegacyProfiles() -> Bool {
+        enrollmentStore.profiles.contains { ($0.embeddingVersion ?? 1) < 2 }
     }
 
     private func timeoutResult() -> FaceVerificationResult {
@@ -732,6 +820,7 @@ final class FacePreviewWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         verificationTask?.cancel()
+        faceUnlock.stopCurrentOperation()
         isVerifying = false
         verificationTask = nil
         didFinish?()
@@ -744,6 +833,9 @@ struct FaceLivenessState {
     private(set) var pitchSamples: [Float] = []
 
     mutating func observe(_ face: FaceFeaturePrint, matched: Bool) {
+        if !matched {
+            resetMotionSamples()
+        }
         yawSamples.append(face.yaw)
         pitchSamples.append(face.pitch)
         matchedFrames = matched ? matchedFrames + 1 : 0
@@ -768,6 +860,11 @@ struct FaceLivenessState {
     mutating func reset() {
         self = FaceLivenessState()
     }
+
+    private mutating func resetMotionSamples() {
+        yawSamples.removeAll()
+        pitchSamples.removeAll()
+    }
 }
 
 enum FaceVerificationResult {
@@ -778,6 +875,7 @@ enum FaceVerificationResult {
 enum FaceVerificationFailure {
     case noEnrollment
     case cameraUnavailable
+    case cameraBusy
     case cameraPermission
     case timeout
     case livenessFailed
@@ -787,6 +885,7 @@ enum FaceVerificationFailure {
         switch self {
         case .noEnrollment: return L("failure_no_enrollment")
         case .cameraUnavailable: return L("failure_camera_unavailable")
+        case .cameraBusy: return L("failure_camera_busy")
         case .cameraPermission: return L("failure_camera_permission")
         case .timeout: return L("failure_timeout")
         case .livenessFailed: return L("failure_liveness")

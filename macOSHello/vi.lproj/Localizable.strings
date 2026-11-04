@@ -14,6 +14,10 @@
 "menu_quit" = "Thoát";
 "trigger_keyboard" = "Kích hoạt bằng bàn phím hoặc chuột (khuyến nghị)";
 "trigger_lock_immediately" = "Nhận diện ngay sau khi khóa";
+"menu_lock_cooldown" = "Thời gian chờ sau khi khóa";
+"cooldown_off" = "Không chờ";
+"cooldown_short" = "20 giây (mặc định)";
+"cooldown_medium" = "60 giây";
 
 /* Status */
 "status_waiting_input" = "Đang chờ bàn phím hoặc chuột";
@@ -31,6 +35,10 @@
 "status_unlock_failed" = "Vẫn bị khóa sau khi nhập";
 "status_lock_requested" = "Đã yêu cầu khóa màn hình";
 "status_lock_failed" = "Khóa màn hình thất bại";
+"status_auto_unlock_disabled" = "Tự động mở khóa đã tắt";
+"status_display_asleep" = "Màn hình tắt, tạm dừng nhận diện";
+"status_lock_cooldown" = "Chờ sau khóa %d giây";
+"status_waiting_retry" = "Đang chờ lần nhận diện tiếp theo";
 
 /* Enrollment */
 "enroll_title" = "Đăng ký khuôn mặt";
@@ -81,11 +89,13 @@
 /* Camera and errors */
 "no_cameras" = "Không có máy quay";
 "error_no_camera" = "Không có máy quay khả dụng.";
+"error_camera_busy" = "Máy quay đang bận với thao tác khác. Hãy thử lại sau.";
 "error_camera_permission_denied" = "Quyền máy quay đã bị từ chối.";
 "error_timeout" = "Thu thập khuôn mặt đã hết thời gian (cần 8 khung liên tiếp đạt ngưỡng).";
 "error_enrollment_missing" = "Chưa đăng ký khuôn mặt.";
 "failure_no_enrollment" = "Chưa đăng ký khuôn mặt.";
 "failure_camera_unavailable" = "Máy quay đang chọn không khả dụng.";
+"failure_camera_busy" = "Máy quay đang bận với thao tác khác.";
 "failure_camera_permission" = "Cần quyền máy quay.";
 "failure_timeout" = "Nhận diện khuôn mặt đã hết thời gian.";
 "failure_liveness" = "Đã đạt ngưỡng tương đồng nhưng chưa qua kiểm tra động tác sống. Hãy xoay đầu chậm rãi và thử lại.";

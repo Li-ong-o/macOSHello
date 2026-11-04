@@ -14,6 +14,10 @@
 "menu_quit" = "종료";
 "trigger_keyboard" = "키보드 또는 마우스 입력 시 인식(권장)";
 "trigger_lock_immediately" = "잠금 직후 인식";
+"menu_lock_cooldown" = "잠금 후 대기 시간";
+"cooldown_off" = "대기 없음";
+"cooldown_short" = "20초(기본값)";
+"cooldown_medium" = "60초";
 
 /* Status */
 "status_waiting_input" = "키보드 또는 마우스 입력 대기 중";
@@ -31,6 +35,10 @@
 "status_unlock_failed" = "입력 후에도 잠금이 해제되지 않았습니다";
 "status_lock_requested" = "화면 잠금 요청됨";
 "status_lock_failed" = "잠금 실패";
+"status_auto_unlock_disabled" = "자동 잠금 해제 꺼짐";
+"status_display_asleep" = "화면 꺼짐, 인식 일시 중지";
+"status_lock_cooldown" = "잠금 후 대기 %d초";
+"status_waiting_retry" = "다음 인식 대기 중";
 
 /* Enrollment */
 "enroll_title" = "얼굴 등록";
@@ -81,11 +89,13 @@
 /* Camera and errors */
 "no_cameras" = "사용 가능한 카메라 없음";
 "error_no_camera" = "사용 가능한 카메라가 없습니다.";
+"error_camera_busy" = "카메라가 다른 작업에 사용 중입니다. 잠시 후 다시 시도하세요.";
 "error_camera_permission_denied" = "카메라 권한이 거부되었습니다.";
 "error_timeout" = "얼굴 수집 시간이 초과되었습니다(임계값을 8프레임 연속 달성해야 합니다).";
 "error_enrollment_missing" = "등록된 얼굴이 없습니다.";
 "failure_no_enrollment" = "등록된 얼굴이 없습니다.";
 "failure_camera_unavailable" = "선택한 카메라를 사용할 수 없습니다.";
+"failure_camera_busy" = "카메라가 다른 작업에 사용 중입니다.";
 "failure_camera_permission" = "카메라 권한이 필요합니다.";
 "failure_timeout" = "얼굴 인식 시간이 초과되었습니다.";
 "failure_liveness" = "유사도는 기준에 도달했지만 생체 동작 검사를 통과하지 못했습니다. 천천히 고개를 돌려 다시 시도하세요.";

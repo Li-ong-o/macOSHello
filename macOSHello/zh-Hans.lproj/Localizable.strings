@@ -14,6 +14,10 @@
 "menu_quit" = "退出";
 "trigger_keyboard" = "键盘或鼠标触发（推荐）";
 "trigger_lock_immediately" = "锁屏后立即识别";
+"menu_lock_cooldown" = "锁屏后冷却时间";
+"cooldown_off" = "不冷却";
+"cooldown_short" = "20 秒（默认）";
+"cooldown_medium" = "60 秒";
 
 /* Status */
 "status_waiting_input" = "等待键盘或鼠标触发";
@@ -31,6 +35,10 @@
 "status_unlock_failed" = "输入后未解锁";
 "status_lock_requested" = "已请求锁定屏幕";
 "status_lock_failed" = "锁屏失败";
+"status_auto_unlock_disabled" = "自动解锁已关闭";
+"status_display_asleep" = "屏幕已关闭，暂停识别";
+"status_lock_cooldown" = "锁屏冷却 %d 秒";
+"status_waiting_retry" = "等待下次识别";
 
 /* Enrollment */
 "enroll_title" = "注册人脸";
@@ -81,11 +89,13 @@
 /* Camera and errors */
 "no_cameras" = "没有可用摄像头";
 "error_no_camera" = "没有可用的摄像头。";
+"error_camera_busy" = "摄像头正被其他操作占用，请稍后再试。";
 "error_camera_permission_denied" = "摄像头权限被拒绝。";
 "error_timeout" = "人脸采集超时（需要连续 8 帧达到阈值）。";
 "error_enrollment_missing" = "尚未注册人脸。";
 "failure_no_enrollment" = "尚未注册人脸。";
 "failure_camera_unavailable" = "选中的摄像头不可用。";
+"failure_camera_busy" = "摄像头正被其他操作占用。";
 "failure_camera_permission" = "需要摄像头权限。";
 "failure_timeout" = "人脸识别超时。";
 "failure_liveness" = "相似度已达标，但活体动作未通过。请缓慢转头后重试。";

@@ -15,6 +15,28 @@ private enum FaceUnlockTriggerMode: Int, CaseIterable {
     }
 }
 
+private enum ManualLockCooldownMode: Int, CaseIterable {
+    case off
+    case short
+    case medium
+
+    var title: String {
+        switch self {
+        case .off: return L("cooldown_off")
+        case .short: return L("cooldown_short")
+        case .medium: return L("cooldown_medium")
+        }
+    }
+
+    var duration: TimeInterval {
+        switch self {
+        case .off: return 0
+        case .short: return 20
+        case .medium: return 60
+        }
+    }
+}
+
 @NSApplicationMain
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
     @IBOutlet private var statusMenu: NSMenu?
@@ -27,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private let thresholdMenu = NSMenu()
     private let cameraMenu = NSMenu()
     private let triggerModeMenu = NSMenu()
+    private let lockCooldownMenu = NSMenu()
 
     private var displaySleep = false
     private var systemSleep = false
@@ -46,6 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var continuousFaceUnlockEnabled = false
     private var continuousFaceUnlockDeadline = Date.distantPast
     private var suppressFaceUnlockUntil = Date.distantPast
+    private var manualLockCooldownUntil = Date.distantPast
+    private var lockCooldownTimer: Timer?
+    private var lockCooldownNotificationAt: Date?
     private var continuousFaceUnlockAttemptCount = 0
     private var facePresenceMissCount = 0
     private var nextFaceAttemptAt = Date.distantPast
@@ -94,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             runFaceSelfTest()
             return
         }
+        prefs.removeObject(forKey: "postureDetectionEnabled")
         configureStatusItem()
         registerSystemNotifications()
         startLockStatePolling()
@@ -120,14 +147,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 print("face-self-test FAIL reason=\(reason) bestSimilarity=\(value)")
             }
             fflush(stdout)
-            NSApp.terminate(nil)
+            await MainActor.run {
+                NSApp.terminate(nil)
+            }
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         accessibilityRetryTimer?.invalidate()
         keyboardTriggerTimer?.invalidate()
+        lockCooldownTimer?.invalidate()
+        statusResetTimer?.invalidate()
         unlockPhysicalInput()
+        statusItem.button?.title = ""
+        lockStateTimer?.invalidate()
+        keyboardTriggerTimer?.invalidate()
         systemObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         systemObservers.forEach(NotificationCenter.default.removeObserver)
     }
@@ -169,6 +203,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let triggerItem = menu.addItem(withTitle: L("menu_trigger_mode"), action: nil, keyEquivalent: "")
         triggerItem.submenu = triggerModeMenu
         rebuildTriggerModeMenu()
+        let cooldownItem = menu.addItem(withTitle: L("menu_lock_cooldown"), action: nil, keyEquivalent: "")
+        cooldownItem.submenu = lockCooldownMenu
+        lockCooldownMenu.delegate = self
+        rebuildLockCooldownMenu()
 
         menu.addItem(.separator())
         let passwordItem = menu.addItem(withTitle: L("menu_set_password"), action: #selector(setPassword), keyEquivalent: "")
@@ -187,6 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         if menu == cameraMenu { rebuildCameraMenu() }
         if menu == thresholdMenu { rebuildThresholdMenu() }
         if menu == triggerModeMenu { rebuildTriggerModeMenu() }
+        if menu == lockCooldownMenu { rebuildLockCooldownMenu() }
         refreshSettingMenuStates()
     }
 
@@ -206,6 +245,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private var faceUnlockTriggerMode: FaceUnlockTriggerMode {
         FaceUnlockTriggerMode(rawValue: prefs.integer(forKey: "faceUnlockTriggerMode")) ?? .keyboard
+    }
+
+    private var manualLockCooldownMode: ManualLockCooldownMode {
+        guard prefs.object(forKey: "manualLockCooldownMode") != nil else { return .short }
+        return ManualLockCooldownMode(rawValue: prefs.integer(forKey: "manualLockCooldownMode")) ?? .short
     }
 
     private var launchAtLoginEnabled: Bool {
@@ -282,6 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.stopCameraWhenSystemSleeps()
         })
         systemObservers.append(distributed.addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.beginLockCooldownAfterLocked()
             if self?.faceUnlockTriggerMode == .keyboard {
                 self?.prepareKeyboardTrigger()
             } else {
@@ -297,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             self?.lastSystemSleepStartedAt = 0
             self?.lastScreensaverStartedAt = 0
             self?.suppressFaceUnlockUntil = .distantPast
+            self?.manualLockCooldownUntil = .distantPast
             self?.keyboardTriggerArmedAt = Date.distantPast.timeIntervalSinceReferenceDate
             self?.cancelUnlockTimers()
             self?.stopContinuousFaceUnlock()
@@ -331,6 +377,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func pollKeyboardTrigger() {
+        if faceUnlockTriggerMode == .keyboard, isManualLockCooldownActive {
+            // Input during the manual-lock cooldown must not count as a trigger later.
+            lastObservedKeyboardEventAt = Self.secondsSinceLastInputEvent
+            return
+        }
         guard faceUnlockTriggerMode == .keyboard,
               autoUnlockEnabled,
               !isPowerStateBlockingCamera,
@@ -452,7 +503,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     private func unlockWithFace(requireLockedScreen: Bool, showResult: Bool, presenceGate: Bool = false) {
         guard !faceOperationActive else { return }
-        if requireLockedScreen { guard isScreenLocked() else { return } }
+        if requireLockedScreen {
+            guard isScreenLocked(), !isManualLockCooldownActive else { return }
+        }
         faceOperationActive = true
         updateStatus(L("status_verifying"))
         logger.info("开始人脸识别，要求锁屏：\(requireLockedScreen, privacy: .public)")
@@ -474,7 +527,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     self.suppressFaceUnlockUntil = Date().addingTimeInterval(12)
                     if requireLockedScreen {
                         self.updateStatus(L("status_success_unlocking"))
-                        self.tryUnlockScreen()
+                        if self.isManualLockCooldownActive {
+                            self.logger.info("手动锁屏冷却中，忽略本次人脸识别结果")
+                            self.scheduleFaceUnlockAfterManualLockCooldownIfNeeded()
+                        } else {
+                            self.tryUnlockScreen()
+                        }
                     } else {
                         self.updateStatus(L("status_success"))
                     }
@@ -524,6 +582,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             return
         }
 
+        if case .cameraBusy = reason {
+            logger.info("摄像头正在被其他操作占用，稍后重试人脸识别")
+            scheduleContinuousFaceUnlock(after: 1)
+            return
+        }
+
         facePresenceMissCount = 0
         continuousFaceUnlockAttemptCount += 1
         logger.error(
@@ -559,14 +623,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func updateStatus(_ text: String) {
-        statusResetTimer?.invalidate()
-        statusResetTimer = nil
         statusItem.button?.title = text
-        guard !text.isEmpty else { return }
-        statusResetTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
-            self?.statusResetTimer = nil
-            self?.statusItem.button?.title = ""
-        }
     }
 
     private func startLockStatePolling() {
@@ -574,11 +631,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         lockStateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.reconcilePowerState()
+            self.refreshStableStatus()
             let locked = self.isScreenLocked()
             if self.lastKnownLockedState != locked {
                 self.logger.info("检测到锁屏状态变化：\(locked ? "已锁定" : "已解锁", privacy: .public)")
                 self.lastKnownLockedState = locked
                 if locked {
+                    self.beginLockCooldownAfterLocked()
                     if self.faceUnlockTriggerMode == .keyboard {
                         self.prepareKeyboardTrigger()
                     } else if !self.isPowerStateBlockingCamera {
@@ -620,12 +679,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private func stopContinuousFaceUnlock() {
         continuousFaceUnlockEnabled = false
         continuousFaceUnlockDeadline = .distantPast
+        refreshStableStatus()
     }
 
     private func resetFaceUnlockAttempts() {
         continuousFaceUnlockAttemptCount = 0
         facePresenceMissCount = 0
         nextFaceAttemptAt = .distantPast
+        refreshStableStatus()
     }
 
     private func scheduleContinuousFaceUnlock(after delay: TimeInterval) {
@@ -663,6 +724,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         }
 
         let now = Date()
+        if now < manualLockCooldownUntil {
+            scheduleContinuousFaceUnlock(after: manualLockCooldownUntil.timeIntervalSince(now) + 0.05)
+            return
+        }
         if now < suppressFaceUnlockUntil {
             scheduleContinuousFaceUnlock(after: suppressFaceUnlockUntil.timeIntervalSince(now) + 0.05)
             return
@@ -674,7 +739,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         unlockWithFace(requireLockedScreen: true, showResult: false, presenceGate: true)
     }
 
+    private func refreshStableStatus() {
+        if !autoUnlockEnabled {
+            updateStatus(L("status_auto_unlock_disabled"))
+        } else if isScreenLocked(), isPowerStateBlockingCamera {
+            updateStatus(L("status_display_asleep"))
+        } else if isScreenLocked(), isManualLockCooldownActive {
+            let seconds = max(0, Int(ceil(manualLockCooldownUntil.timeIntervalSinceNow)))
+            updateStatus(LF("status_lock_cooldown", seconds))
+        } else if isScreenLocked(), faceOperationActive {
+            updateStatus(L("status_verifying"))
+        } else if isScreenLocked(), continuousFaceUnlockEnabled,
+                  Date() < nextFaceAttemptAt {
+            updateStatus(L("status_waiting_retry"))
+        } else if isScreenLocked(), faceUnlockTriggerMode == .keyboard {
+            updateStatus(L("status_waiting_input"))
+        } else {
+            updateStatus("")
+        }
+    }
+
     private func tryUnlockScreen(retryCount: Int = 0) {
+        guard !isManualLockCooldownActive else {
+            cancelUnlockTimers()
+            logger.info("手动锁屏冷却中，暂不输入密码")
+            scheduleFaceUnlockAfterManualLockCooldownIfNeeded()
+            return
+        }
         guard !isPowerStateBlockingCamera else { return }
         guard AXIsProcessTrusted() else {
             logger.error("自动解锁停止：缺少辅助功能权限")
@@ -693,6 +784,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let unlockDelay = conservativeWakeUnlockNeeded() ? conservativeWakeUnlockDelay : (recentlyWoke() ? 0.75 : 0.5)
         wakeUnlockTimer = Timer.scheduledTimer(withTimeInterval: unlockDelay, repeats: false) { [weak self] _ in
             guard let self, self.isScreenLocked() else { return }
+            guard !self.isManualLockCooldownActive else {
+                self.scheduleFaceUnlockAfterManualLockCooldownIfNeeded()
+                return
+            }
             guard let password = self.fetchPassword(warn: false) else {
                 self.logger.error("自动解锁停止：尚未设置登录密码")
                 self.updateStatus(L("status_password_missing"))
@@ -721,10 +816,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         passwordVerifyTimer = nil
     }
 
+    private var isManualLockCooldownActive: Bool {
+        Date() < manualLockCooldownUntil
+    }
+
+    private func beginLockCooldownAfterLocked() {
+        let duration = manualLockCooldownMode.duration
+        guard duration > 0 else { return }
+        if let lastNotification = lockCooldownNotificationAt,
+           Date().timeIntervalSince(lastNotification) < 1 {
+            return
+        }
+        lockCooldownNotificationAt = Date()
+        manualLockCooldownUntil = Date().addingTimeInterval(duration)
+        lockCooldownTimer?.invalidate()
+        lockCooldownTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            self?.lockCooldownTimer = nil
+            self?.refreshStableStatus()
+            self?.resumeForCurrentLockState()
+        }
+        if let lockCooldownTimer { RunLoop.main.add(lockCooldownTimer, forMode: .common) }
+        logger.info("锁屏后 \(duration, privacy: .public) 秒内禁止自动人脸解锁")
+    }
+
+    private func beginManualLockCooldown() {
+        pendingFaceUnlock?.cancel()
+        pendingFaceUnlock = nil
+        cancelUnlockTimers()
+        stopContinuousFaceUnlock()
+        resetFaceUnlockAttempts()
+        faceUnlock.stopCurrentOperation()
+        faceOperationActive = false
+        unlockPhysicalInput()
+        isEnteringPassword = false
+        logger.info("手动锁屏：\(self.manualLockCooldownMode.duration, privacy: .public) 秒内禁止自动人脸解锁")
+        refreshStableStatus()
+    }
+
+    private func scheduleFaceUnlockAfterManualLockCooldownIfNeeded() {
+        guard isManualLockCooldownActive, autoUnlockEnabled, isScreenLocked() else { return }
+        if faceUnlockTriggerMode == .keyboard {
+            prepareKeyboardTrigger()
+        } else {
+            startContinuousFaceUnlock(resetPenalty: true)
+        }
+    }
+
     /// Types the password once, then verifies whether the screen really unlocked. If the screen is
     /// still locked (e.g. a stray keystroke slipped in, or the field was not empty) the whole
     /// select-all / type / return sequence is repeated, which also clears any junk first.
     private func submitPassword(_ password: String) {
+        guard !isManualLockCooldownActive else {
+            cancelUnlockTimers()
+            scheduleFaceUnlockAfterManualLockCooldownIfNeeded()
+            return
+        }
         passwordAttemptCount = 1
         guard enterPasswordSafely(password) else { return }
         schedulePasswordVerification(password)
@@ -734,6 +880,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         passwordVerifyTimer?.invalidate()
         let timer = Timer(timeInterval: Self.passwordVerifyDelay, repeats: false) { [weak self] _ in
             guard let self else { return }
+            guard !self.isManualLockCooldownActive else {
+                self.scheduleFaceUnlockAfterManualLockCooldownIfNeeded()
+                return
+            }
             guard self.isScreenLocked() else {
                 self.logger.info("已确认解锁成功")
                 return
@@ -755,6 +905,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @discardableResult
     private func enterPasswordSafely(_ password: String) -> Bool {
+        guard !isManualLockCooldownActive else {
+            logger.info("手动锁屏冷却中，已取消自动输入密码")
+            return false
+        }
         guard !isEnteringPassword else {
             logger.info("已在进行自动输入，忽略重复的解锁请求")
             return false
@@ -776,16 +930,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         //    lock), a following Delete guarantees the field ends up empty either way.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak self] in
             guard let self else { return }
+            guard !self.cancelPasswordEntryIfManualLockCooldownStarted() else { return }
             Self.postSelectAll(source: source)
 
             // 2. Type the password.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                 guard let self else { return }
+                guard !self.cancelPasswordEntryIfManualLockCooldownStarted() else { return }
                 self.postPasswordText(password, source: source)
 
                 // 3. Press Return to submit.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                     guard let self else { return }
+                    guard !self.cancelPasswordEntryIfManualLockCooldownStarted() else { return }
                     Self.postKeyEvent(source: source, virtualKey: 36, keyDown: true, flags: [])
                     Self.postKeyEvent(source: source, virtualKey: 36, keyDown: false, flags: [])
                     self.logger.info("已发送全选、密码与回车")
@@ -799,6 +956,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 }
             }
         }
+        return true
+    }
+
+    private func cancelPasswordEntryIfManualLockCooldownStarted() -> Bool {
+        guard isManualLockCooldownActive else { return false }
+        unlockPhysicalInput()
+        isEnteringPassword = false
+        logger.info("手动锁屏冷却已开始，取消尚未完成的密码输入")
         return true
     }
 
@@ -1039,6 +1204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @objc private func setFaceCamera(_ menuItem: NSMenuItem) {
         prefs.set(menuItem.representedObject as? String ?? "", forKey: "faceCameraID")
+        faceUnlock.stopCurrentOperation()
+        faceOperationActive = false
+        stopContinuousFaceUnlock()
         rebuildCameraMenu()
     }
 
@@ -1053,9 +1221,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc private func toggleAutoUnlock() {
         let enabled = !autoUnlockEnabled
         prefs.set(enabled, forKey: "autoFaceUnlockEnabled")
+        if !enabled {
+            pendingFaceUnlock?.cancel()
+            pendingFaceUnlock = nil
+            cancelUnlockTimers()
+            stopContinuousFaceUnlock()
+            faceUnlock.stopCurrentOperation()
+            faceOperationActive = false
+        } else if isScreenLocked(), !isPowerStateBlockingCamera {
+            if faceUnlockTriggerMode == .keyboard {
+                prepareKeyboardTrigger()
+            } else {
+                startContinuousFaceUnlock(resetPenalty: true)
+            }
+        }
         statusItem.menu?.items.forEach { item in
             if item.action == #selector(toggleAutoUnlock) { item.state = enabled ? .on : .off }
         }
+    }
+
+    @objc private func setManualLockCooldownMode(_ menuItem: NSMenuItem) {
+        guard let mode = ManualLockCooldownMode(rawValue: menuItem.tag) else { return }
+        prefs.set(mode.rawValue, forKey: "manualLockCooldownMode")
+        rebuildLockCooldownMenu()
     }
 
     @objc private func setFaceUnlockTriggerMode(_ menuItem: NSMenuItem) {
@@ -1109,15 +1297,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     @objc private func lockScreenNow() {
-        cancelUnlockTimers()
+        let previousManualLockCooldownUntil = manualLockCooldownUntil
+        beginManualLockCooldown()
         let result = SACLockScreenImmediate()
         if result == noErr {
+            manualLockCooldownUntil = Date().addingTimeInterval(manualLockCooldownMode.duration)
             logger.info("已请求锁定屏幕")
             updateStatus(L("status_lock_requested"))
+            scheduleFaceUnlockAfterManualLockCooldownIfNeeded()
         } else {
+            manualLockCooldownUntil = previousManualLockCooldownUntil
             logger.error("锁屏请求失败：\(result, privacy: .public)")
             updateStatus(L("status_lock_failed"))
             showInfo(L("status_lock_failed"), LF("lock_failed_message", result))
+            resumeForCurrentLockState()
         }
     }
 
@@ -1173,6 +1366,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             let item = triggerModeMenu.addItem(withTitle: mode.title, action: #selector(setFaceUnlockTriggerMode), keyEquivalent: "")
             item.tag = mode.rawValue
             item.state = mode == faceUnlockTriggerMode ? .on : .off
+        }
+    }
+
+    private func rebuildLockCooldownMenu() {
+        lockCooldownMenu.removeAllItems()
+        for mode in ManualLockCooldownMode.allCases {
+            let item = lockCooldownMenu.addItem(
+                withTitle: mode.title,
+                action: #selector(setManualLockCooldownMode),
+                keyEquivalent: ""
+            )
+            item.tag = mode.rawValue
+            item.state = mode == manualLockCooldownMode ? .on : .off
         }
     }
 

@@ -14,6 +14,10 @@
 "menu_quit" = "Quit";
 "trigger_keyboard" = "Keyboard or Mouse Trigger (Recommended)";
 "trigger_lock_immediately" = "Recognize Immediately After Lock";
+"menu_lock_cooldown" = "Post-Lock Cooldown";
+"cooldown_off" = "No Cooldown";
+"cooldown_short" = "20 Seconds (Default)";
+"cooldown_medium" = "60 Seconds";
 
 /* Status */
 "status_waiting_input" = "Waiting for keyboard or mouse";
@@ -31,6 +35,10 @@
 "status_unlock_failed" = "Still locked after password entry";
 "status_lock_requested" = "Lock requested";
 "status_lock_failed" = "Lock failed";
+"status_auto_unlock_disabled" = "Auto unlock disabled";
+"status_display_asleep" = "Display off, recognition paused";
+"status_lock_cooldown" = "Lock cooldown %d seconds";
+"status_waiting_retry" = "Waiting for next verification";
 
 /* Enrollment */
 "enroll_title" = "Enroll Face";
@@ -81,11 +89,13 @@
 /* Camera and errors */
 "no_cameras" = "No camera available";
 "error_no_camera" = "No camera is available.";
+"error_camera_busy" = "The camera is busy with another operation. Try again shortly.";
 "error_camera_permission_denied" = "Camera permission was denied.";
 "error_timeout" = "Face capture timed out (8 consecutive frames above the threshold are required).";
 "error_enrollment_missing" = "No face has been enrolled.";
 "failure_no_enrollment" = "No face has been enrolled.";
 "failure_camera_unavailable" = "The selected camera is unavailable.";
+"failure_camera_busy" = "The camera is busy with another operation.";
 "failure_camera_permission" = "Camera permission is required.";
 "failure_timeout" = "Face recognition timed out.";
 "failure_liveness" = "The similarity threshold was reached, but the liveness motion check failed. Slowly turn your head and try again.";

@@ -14,6 +14,10 @@
 "menu_quit" = "ออก";
 "trigger_keyboard" = "เริ่มจดจำเมื่อพิมพ์หรือใช้เมาส์ (แนะนำ)";
 "trigger_lock_immediately" = "จดจำทันทีหลังล็อก";
+"menu_lock_cooldown" = "เวลารอหลังล็อก";
+"cooldown_off" = "ไม่รอ";
+"cooldown_short" = "20 วินาที (ค่าเริ่มต้น)";
+"cooldown_medium" = "60 วินาที";
 
 /* Status */
 "status_waiting_input" = "กำลังรอคีย์บอร์ดหรือเมาส์";
@@ -31,6 +35,10 @@
 "status_unlock_failed" = "ยังล็อกอยู่หลังป้อนรหัสผ่าน";
 "status_lock_requested" = "ส่งคำขอล็อกหน้าจอแล้ว";
 "status_lock_failed" = "ล็อกหน้าจอไม่สำเร็จ";
+"status_auto_unlock_disabled" = "ปลดล็อกอัตโนมัติปิดอยู่";
+"status_display_asleep" = "หน้าจอปิด หยุดจดจำชั่วคราว";
+"status_lock_cooldown" = "รอหลังล็อก %d วินาที";
+"status_waiting_retry" = "กำลังรอจดจำครั้งถัดไป";
 
 /* Enrollment */
 "enroll_title" = "ลงทะเบียนใบหน้า";
@@ -81,11 +89,13 @@
 /* Camera and errors */
 "no_cameras" = "ไม่มีกล้องที่ใช้ได้";
 "error_no_camera" = "ไม่มีกล้องที่ใช้งานได้";
+"error_camera_busy" = "กล้องกำลังถูกใช้กับงานอื่น โปรดลองอีกครั้ง";
 "error_camera_permission_denied" = "สิทธิ์กล้องถูกปฏิเสธ";
 "error_timeout" = "การเก็บข้อมูลใบหน้าหมดเวลา (ต้องมี 8 เฟิร์มติดต่อกันที่ถึงเกณฑ์)";
 "error_enrollment_missing" = "ยังไม่ได้ลงทะเบียนใบหน้า";
 "failure_no_enrollment" = "ยังไม่ได้ลงทะเบียนใบหน้า";
 "failure_camera_unavailable" = "กล้องที่เลือกใช้งานไม่ได้";
+"failure_camera_busy" = "กล้องกำลังถูกใช้กับงานอื่น";
 "failure_camera_permission" = "ต้องมีสิทธิ์กล้อง";
 "failure_timeout" = "การจดจำใบหน้าหมดเวลา";
 "failure_liveness" = "ความคล้ายคลึงถึงเกณฑ์แล้ว แต่การตรวจการเคลื่อนไหวไม่ผ่าน โปรดหมุนศีรษะช้าๆ แล้วลองอีกครั้ง";

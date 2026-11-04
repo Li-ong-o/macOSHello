@@ -14,6 +14,10 @@
 "menu_quit" = "結束";
 "trigger_keyboard" = "鍵盤或滑鼠觸發（建議）";
 "trigger_lock_immediately" = "鎖定後立即辨識";
+"menu_lock_cooldown" = "鎖定後冷卻時間";
+"cooldown_off" = "不冷卻";
+"cooldown_short" = "20 秒（預設）";
+"cooldown_medium" = "60 秒";
 
 /* Status */
 "status_waiting_input" = "等待鍵盤或滑鼠觸發";
@@ -31,6 +35,10 @@
 "status_unlock_failed" = "輸入後未解鎖";
 "status_lock_requested" = "已請求鎖定螢幕";
 "status_lock_failed" = "鎖定失敗";
+"status_auto_unlock_disabled" = "自動解鎖已關閉";
+"status_display_asleep" = "螢幕已關閉，暫停辨識";
+"status_lock_cooldown" = "鎖定冷卻 %d 秒";
+"status_waiting_retry" = "等待下次辨識";
 
 /* Enrollment */
 "enroll_title" = "註冊臉孔";
@@ -81,11 +89,13 @@
 /* Camera and errors */
 "no_cameras" = "沒有可用攝影機";
 "error_no_camera" = "沒有可用的攝影機。";
+"error_camera_busy" = "攝影機正被其他操作占用，請稍後再試。";
 "error_camera_permission_denied" = "攝影機權限被拒絕。";
 "error_timeout" = "臉孔收集逾時（需要連續 8 幀達到閾值）。";
 "error_enrollment_missing" = "尚未註冊臉孔。";
 "failure_no_enrollment" = "尚未註冊臉孔。";
 "failure_camera_unavailable" = "選定的攝影機無法使用。";
+"failure_camera_busy" = "攝影機正被其他操作占用。";
 "failure_camera_permission" = "需要攝影機權限。";
 "failure_timeout" = "臉孔辨識逾時。";
 "failure_liveness" = "相似度已達標，但活體動作未通過。請緩慢轉頭後再試。";

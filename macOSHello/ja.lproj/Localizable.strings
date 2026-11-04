@@ -14,6 +14,10 @@
 "menu_quit" = "終了";
 "trigger_keyboard" = "キーボードまたはマウス入力で認識（推奨）";
 "trigger_lock_immediately" = "ロック後にすぐ認識";
+"menu_lock_cooldown" = "ロック後のクールダウン";
+"cooldown_off" = "クールダウンなし";
+"cooldown_short" = "20秒（初期値）";
+"cooldown_medium" = "60秒";
 
 /* Status */
 "status_waiting_input" = "キーボードまたはマウス入力を待機中";
@@ -31,6 +35,10 @@
 "status_unlock_failed" = "入力後もロックが解除されません";
 "status_lock_requested" = "画面ロックを要求しました";
 "status_lock_failed" = "ロックに失敗しました";
+"status_auto_unlock_disabled" = "自動ロック解除は無効です";
+"status_display_asleep" = "画面オフのため認識を一時停止";
+"status_lock_cooldown" = "ロック後クールダウン %d 秒";
+"status_waiting_retry" = "次の認識を待機中";
 
 /* Enrollment */
 "enroll_title" = "顔を登録";
@@ -81,11 +89,13 @@
 /* Camera and errors */
 "no_cameras" = "利用できるカメラがありません";
 "error_no_camera" = "利用できるカメラがありません。";
+"error_camera_busy" = "カメラは別の操作で使用中です。しばらくしてから再試行してください。";
 "error_camera_permission_denied" = "カメラ権限が拒否されました。";
 "error_timeout" = "顔の収集がタイムアウトしました（しきい値を8フレーム連続で満たす必要があります）。";
 "error_enrollment_missing" = "顔が登録されていません。";
 "failure_no_enrollment" = "顔が登録されていません。";
 "failure_camera_unavailable" = "選択したカメラは利用できません。";
+"failure_camera_busy" = "カメラは別の操作で使用中です。";
 "failure_camera_permission" = "カメラ権限が必要です。";
 "failure_timeout" = "顔認識がタイムアウトしました。";
 "failure_liveness" = "類似度は基準に達しましたが、生体動作チェックを通過しませんでした。ゆっくり頭を回して再試行してください。";
